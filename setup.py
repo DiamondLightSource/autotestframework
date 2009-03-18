@@ -20,7 +20,7 @@ setup(
 	package_dir = {	'dls': 'dls',
 					'dls.autotestframework': 'src'},
 	# define console_scripts to be 
-	entry_points = {'console_scripts': ['test-python-hello-world = dls.autotestframework.autotestframework:main']},
+	entry_points = {'console_scripts': ['dls-run-tests = dls.autotestframework.autotestframework:main']},
 	include_package_data = True,
 	zip_safe = False
 	)
