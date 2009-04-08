@@ -747,14 +747,16 @@ class Target(object):
             moduleBuildCmd="make clean uninstall; make",
             iocBuildCmd="make clean uninstall; make",
             iocBootCmd=None, epicsDbFiles="", simDevices=[],
-            parameters={}, guiCmds=[]):
+            parameters={}, guiCmds=[], simulationRunCmd=None):
         self.suite = suite
         self.name = name
         self.iocDirectory = iocDirectory
         self.iocBuildCmd = iocBuildCmd
         self.moduleBuildCmd = moduleBuildCmd
         self.iocBootCmd = iocBootCmd
+        self.simulationRunCmd = simulationRunCmd
         self.targetProcess = None
+        self.simulationProcess = None
         self.epicsDbFiles = string.split(epicsDbFiles)
         self.simDevices = {}
         self.parameters = parameters
@@ -777,6 +779,9 @@ class Target(object):
         if doBuild and self.iocBuildCmd is not None:
             p = subprocess.Popen(self.iocBuildCmd, cwd=self.iocDirectory, shell=True)
             p.wait()
+        if runIoc and self.simulationRunCmd is not None:
+            self.simulationProcess = subprocess.Popen(self.simulationRunCmd,
+                cwd=self.iocDirectory, shell=True)
         if runIoc and self.iocBootCmd is not None:
             self.targetProcess = subprocess.Popen(self.iocBootCmd,
                 cwd=self.iocDirectory, shell=True)
@@ -797,6 +802,10 @@ class Target(object):
             self.targetProcess = None
             p = subprocess.Popen("stty sane", shell=True)
             p.wait()
+        if self.simulationProcess is not None:
+            p = subprocess.Popen("kill -KILL %d" % self.simulationProcess.pid, shell=True)
+            p.wait()
+            self.simulationProcess = None
         for guiProcess in self.guiProcesses:
             p = subprocess.Popen("kill -KILL %d" % guiProcess.pid, shell=True)
             p.wait()
