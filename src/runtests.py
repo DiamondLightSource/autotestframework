@@ -18,6 +18,7 @@ Options:
    -c <case>      Execute only the specified test.
    -f <file>      Read a configuration file.
    -g             Run the GUI commands before the tests.
+   -e             Run the simulation commands before the tests.
    -q             Log output from test execution.
    -p <processes> The number of tests to run in parallel, default 1.
    -l <name>      Create a summary log file.
@@ -44,6 +45,7 @@ class RunTests(object):
         self.runIoc = False
         self.logOutput = False
         self.runGui = False
+        self.runEmulation = False
         self.searchDirectory = "."
         self.diagnosticLevel = 0
         self.serverSocketName = None
@@ -130,6 +132,8 @@ class RunTests(object):
                                 options += " -i"
                             if self.runGui:
                                 options += " -g"
+                            if self.runEmulation:
+                                options += " -e"
                             if self.target is not None:
                                 options += " -t "
                                 options += self.target
@@ -176,6 +180,8 @@ class RunTests(object):
                     self.runIoc = True
                 elif arg == "-g":
                     self.runGui = True
+                elif arg == "-e":
+                    self.runEmulation = True
                 elif arg == "-q":
                     self.logOutput = True
                 elif arg == "-h":

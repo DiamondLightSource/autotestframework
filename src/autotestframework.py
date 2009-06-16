@@ -333,7 +333,7 @@ class EpicsDatabase(object):
     def parseDatabase(self):
         '''Parse the database file.'''
         token = self.getToken()
-        while token == "record":
+        while token == "record" or token == "grecord":
             self.parseRecord()
             token = self.getToken()
 
@@ -502,6 +502,7 @@ class TestSuite(unittest.TestSuite):
         self.doBuild = False
         self.runIoc = False
         self.runGui = False
+        self.runSimulation = False
         self.onlyTarget = None
         self.onlyTestCase = None
         self.results = None
@@ -543,6 +544,8 @@ class TestSuite(unittest.TestSuite):
                     self.runIoc = True
                 elif arg == "-g":
                     self.runGui = True
+                elif arg == "-e":
+                    self.runSimulation = True
             elif state == "diagnosticLevel":
                 self.diagnosticLevel = int(arg)
                 state = "none"
@@ -623,7 +626,8 @@ class TestSuite(unittest.TestSuite):
         '''Runs this suite's tests.'''
         for self.target in self.targets:
             if self.onlyTarget is None or self.onlyTarget == self.target.name:
-                self.target.prepare(self.doBuild, self.runIoc, self.runGui, self.diagnosticLevel)
+                self.target.prepare(self.doBuild, self.runIoc, self.runGui, 
+                    self.diagnosticLevel, self.runSimulation)
                 self.prepare(self.target.epicsDbFiles, self.target.iocDirectory)
                 self.diagnostic("==============================")
                 self.results = TestResult(self.countTestCases(), sys.stdout, self)
@@ -747,21 +751,21 @@ class Target(object):
             moduleBuildCmd="make clean uninstall; make",
             iocBuildCmd="make clean uninstall; make",
             iocBootCmd=None, epicsDbFiles="", simDevices=[],
-            parameters={}, guiCmds=[], simulationRunCmd=None):
+            parameters={}, guiCmds=[], simulationCmds=[]):
         self.suite = suite
         self.name = name
         self.iocDirectory = iocDirectory
         self.iocBuildCmd = iocBuildCmd
         self.moduleBuildCmd = moduleBuildCmd
         self.iocBootCmd = iocBootCmd
-        self.simulationRunCmd = simulationRunCmd
         self.targetProcess = None
-        self.simulationProcess = None
         self.epicsDbFiles = string.split(epicsDbFiles)
         self.simDevices = {}
         self.parameters = parameters
         self.guiCmds = guiCmds
         self.guiProcesses = []
+        self.simulationCmds = simulationCmds
+        self.simulationProcesses = []
         for device in simDevices:
             self.simDevices[device.name] = device
         self.suite.addTarget(self)
@@ -771,7 +775,7 @@ class Target(object):
         self.destroy()
 
     #########################
-    def prepare(self, doBuild, runIoc, runGui, diagnosticLevel):
+    def prepare(self, doBuild, runIoc, runGui, diagnosticLevel, runSim):
         '''Prepares the target for execution of the test suite.'''
         if doBuild and self.moduleBuildCmd is not None:
             p = subprocess.Popen(self.moduleBuildCmd, cwd='.', shell=True)
@@ -779,9 +783,11 @@ class Target(object):
         if doBuild and self.iocBuildCmd is not None:
             p = subprocess.Popen(self.iocBuildCmd, cwd=self.iocDirectory, shell=True)
             p.wait()
-        if runIoc and self.simulationRunCmd is not None:
-            self.simulationProcess = subprocess.Popen(self.simulationRunCmd,
-                cwd=self.iocDirectory, shell=True)
+        if runSim:
+            for simulationCmd in self.simulationCmds:
+                p = subprocess.Popen(simulationCmd, cwd='.', shell=True)
+                self.simulationProcesses.append(p)
+                Sleep(10)
         if runIoc and self.iocBootCmd is not None:
             self.targetProcess = subprocess.Popen(self.iocBootCmd,
                 cwd=self.iocDirectory, shell=True)
@@ -792,6 +798,7 @@ class Target(object):
             for guiCmd in self.guiCmds:
                 p = subprocess.Popen(guiCmd, cwd='.', shell=True)
                 self.guiProcesses.append(p)
+            Sleep(10)
         
     #########################
     def destroy(self):
@@ -802,10 +809,10 @@ class Target(object):
             self.targetProcess = None
             p = subprocess.Popen("stty sane", shell=True)
             p.wait()
-        if self.simulationProcess is not None:
-            p = subprocess.Popen("kill -KILL %d" % self.simulationProcess.pid, shell=True)
+        for simulationProcess in self.simulationProcesses:
+            p = subprocess.Popen("kill -KILL %d" % simulationProcess.pid, shell=True)
             p.wait()
-            self.simulationProcess = None
+        self.simulationProcesses = []
         for guiProcess in self.guiProcesses:
             p = subprocess.Popen("kill -KILL %d" % guiProcess.pid, shell=True)
             p.wait()
@@ -853,12 +860,13 @@ class SimDevice(object):
     with a target.'''
     
     #########################
-    def __init__(self, name, simulationPort):
+    def __init__(self, name, simulationPort, pythonShell=True):
         # Initialise
         self.sim = None
         self.simulationPort = simulationPort
         self.name = name
         self.suite = None
+        self.pythonShell = pythonShell
 
     #########################
     def devicePresent(self):
@@ -918,7 +926,10 @@ class SimDevice(object):
         '''Send a command to the simulation.'''
         if self.sim is not None:
             self.suite.diagnostic("Command[%s]: %s" % (self.name, text), 2)
-            self.sim.sendall('self.command("%s")\n' % text)
+            if self.pythonShell:
+                self.sim.sendall('self.command("%s")\n' % text)
+            else:
+                self.sim.sendall('%s\n' % text)
 
     #########################
     def recvResponse(self, rsp, numArgs=-1):
