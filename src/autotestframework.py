@@ -12,7 +12,7 @@ database coverage report and (where possible) a protocol coverage report.
 from pkg_resources import require
 require('numpy')
 require('cothread')
-require('dls.serial_sim==1.5')
+require('dls.serial_sim')
 import cothread
 from cothread import *
 from cothread.catools import *
