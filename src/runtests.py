@@ -3,7 +3,7 @@
 helpText = '''Run the automatic integration test facility.
 
 The specified directory is assumed to contain EPICS modules. Each module
-is inspected, if it contains a dls/test subdirectory this is taken
+is inspected, if it contains a dls/test or etc/test subdirectory this is taken
 as an indication that the module supports the test system and any Python
 scripts in this directory are executed.
 
@@ -112,8 +112,15 @@ class RunTests(object):
         for module in modules:
             # Is there a test directory?
             moduleDir = self.searchDirectory + '/' + module
-            testDir = moduleDir + '/dls/test'
-            if os.path.isdir(testDir):
+            found = False
+            if os.path.isdir(moduleDir + '/etc/test'):
+                testSubPath = '/etc/test/'
+                found = True
+            elif os.path.isdir(moduleDir + '/dls/test'):
+                testSubPath = '/dls/test/'
+                found = True
+            if found:
+                testDir = moduleDir + testSubPath
                 # Is this a module we should be testing?
                 if self.module is None or self.module == module:
                     # Execute any python scripts in this directory
@@ -121,10 +128,8 @@ class RunTests(object):
                     for file in files:
                         fileParts = os.path.splitext(file)
                         if fileParts[1] == '.py':
-                            #path = testDir + '/' + file
-                            #log = testDir + '/' + fileParts[0] + '.log'
-                            path = './dls/test/' + file
-                            log = './dls/test/' + fileParts[0] + '.log'
+                            path = '.' + testSubPath + file
+                            log = '.' + testSubPath + fileParts[0] + '.log'
                             options = "-d %s" % self.diagnosticLevel
                             if self.build:
                                 options += " -b"

@@ -804,19 +804,32 @@ class Target(object):
     def destroy(self):
         '''Returns the target to it's initial state.'''
         if self.targetProcess is not None:
-            p = subprocess.Popen("kill -KILL %d" % self.targetProcess.pid, shell=True)
-            p.wait()
+            self.killProcessAndChildren(self.targetProcess.pid)
             self.targetProcess = None
             p = subprocess.Popen("stty sane", shell=True)
             p.wait()
         for simulationProcess in self.simulationProcesses:
-            p = subprocess.Popen("kill -KILL %d" % simulationProcess.pid, shell=True)
-            p.wait()
+            self.killProcessAndChildren(simulationProcess.pid)
         self.simulationProcesses = []
         for guiProcess in self.guiProcesses:
-            p = subprocess.Popen("kill -KILL %d" % guiProcess.pid, shell=True)
-            p.wait()
+            self.killProcessAndChildren(guiProcess.pid)
         self.guiProcesses = []
+
+    #########################
+    def killProcessAndChildren(self, pid):
+        # First, kill off all the children
+        str = subprocess.Popen('ps -o pid,ppid ax', shell=True, stdout=subprocess.PIPE).communicate()[0]
+        lines = str.split('\n')[1:]
+        for line in lines:
+            pids = line.strip().split()
+            if len(pids) == 2 and int(pids[1]) == pid:
+                self.killProcessAndChildren(int(pids[0]))
+        # If the parent still exists, kill it too
+        str = subprocess.Popen('ps %s' % pid, shell=True, stdout=subprocess.PIPE).communicate()[0]
+        lines = str.split('\n')
+        if len(lines) > 1 and lines[1].find('<defunct>') == -1:
+            p = subprocess.Popen("kill -KILL %d" % pid, shell=True)
+            p.wait()
 
     #########################
     def reportSimulationCoverage(self):
