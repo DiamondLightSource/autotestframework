@@ -1,4 +1,4 @@
-#! /usr/bin/env python2.4
+#!/dls_sw/tools/bin/python2.4
 
 helpText = '''Run the automatic integration test facility.
 
