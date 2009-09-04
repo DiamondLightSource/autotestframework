@@ -22,6 +22,7 @@ Options:
    -q             Log output from test execution.
    -p <processes> The number of tests to run in parallel, default 1.
    -l <name>      Create a summary log file.
+   -x             Create junit compatible XML results files.
 '''
 
 import os, sys, subprocess, thread, socket, select
@@ -56,6 +57,7 @@ class RunTests(object):
         self.runTestThreads = {}
         self.resultProcessThreads = {}
         self.summaryLogFile = None
+        self.xmlResultFiles = False
         if self.processArguments():
             self.useConfigFile()
             # Create some lock objects
@@ -130,6 +132,7 @@ class RunTests(object):
                         if fileParts[1] == '.py':
                             path = '.' + testSubPath + file
                             log = '.' + testSubPath + fileParts[0] + '.log'
+                            xmlResults = '.' + testSubPath + fileParts[0] + '.xml'
                             options = "-d %s" % self.diagnosticLevel
                             if self.build:
                                 options += " -b"
@@ -148,6 +151,9 @@ class RunTests(object):
                             if self.serverSocketName is not None:
                                 options += " -r "
                                 options += self.serverSocketName
+                            if self.xmlResultFiles:
+                                options += " -x "
+                                options += xmlResults
                             cmd = ""
                             for export in self.exports:
                                 cmd += export + " "
@@ -179,6 +185,8 @@ class RunTests(object):
                     state = "processes"
                 elif arg == "-l":
                     state = "logFile"
+                elif arg == "-x":
+                    self.xmlResultFiles = True
                 elif arg == "-b":
                     self.build = True
                 elif arg == "-i":

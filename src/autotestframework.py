@@ -30,6 +30,7 @@ import dls.serial_sim
 import Queue
 import socket
 from runtests import *
+from xml.dom.minidom import *
 
 helpText = """
 Execute an automatic test suite.  Options are:
@@ -37,6 +38,7 @@ Execute an automatic test suite.  Options are:
 -d <level>    Sets the diagnostic level, 0..9.
 -b            Performs a build before running the tests.
 -i            Run IOC before running the tests.
+-x <file>     Creates a JUNIT compatible XML results file
 """
 ################################################
 # Epics database record
@@ -508,6 +510,7 @@ class TestSuite(unittest.TestSuite):
         self.results = None
         self.serverSocketName = None
         self.resultSocket = None
+        self.xmlFileName = None
         # Parse any command line arguments
         if self.processArguments():
             # Try to open a connection to the results server
@@ -546,6 +549,8 @@ class TestSuite(unittest.TestSuite):
                     self.runGui = True
                 elif arg == "-e":
                     self.runSimulation = True
+                elif arg == "-x":
+                    state = "xmlFile"
             elif state == "diagnosticLevel":
                 self.diagnosticLevel = int(arg)
                 state = "none"
@@ -557,6 +562,9 @@ class TestSuite(unittest.TestSuite):
                 state = "none"
             elif state == "resultServer":
                 self.serverSocketName = arg
+                state = "none"
+            elif state == "xmlFile":
+                self.xmlFileName = arg
                 state = "none"
         return result
         
@@ -671,6 +679,11 @@ class TestResult(unittest.TestResult):
         self.startTime = time.time()
         self.failures = []
         self.suite = suite
+        self.xmlDoc = None
+        self.xmlTop = None
+        if suite.xmlFileName is not None:
+            self.xmlDoc = getDOMImplementation().createDocument(None, "testsuite", None)
+            self.xmlTop = self.xmlDoc.documentElement
         self.outputText("1..%s\n" % self.numCases)
 
     #########################
@@ -682,6 +695,16 @@ class TestResult(unittest.TestResult):
     def addSuccess(self, test):
         '''Called when a test case has run successfully.'''
         self.outputText("ok %s - %s\n" % (self.testsRun, self.getDescription(test)))
+        if self.xmlTop is not None:
+            element = self.createCaseXmlElement(test)
+
+    #########################
+    def createCaseXmlElement(self, test):
+        element = self.xmlDoc.createElement("testcase")
+        self.xmlTop.appendChild(element)
+        element.setAttribute("classname", test.__module__)
+        element.setAttribute("name", str(test.__class__.__name__))
+        return element
 
     #########################
     def addError(self, test, err):
@@ -698,6 +721,11 @@ class TestResult(unittest.TestResult):
             for line in string.split(text, "\n"):
                 self.outputText("# %s\n" % line)
         self.outputText("not ok %s - %s\n" % (self.testsRun, self.getDescription(test)))
+        if self.xmlTop is not None:
+            element = self.createCaseXmlElement(test)
+            errorElement = self.xmlDoc.createElement("error")
+            element.appendChild(errorElement)
+            errorElement.setAttribute("message", "Test failure")
 
     #########################
     def report(self):
@@ -729,6 +757,18 @@ class TestResult(unittest.TestResult):
             lines = text.split('\n')
             for line in lines:
                 self.diagnostic(line)
+        # Output the XML report if required
+        if self.xmlDoc is not None:
+            self.xmlTop.setAttribute("failures", str(len(self.failures)))
+            self.xmlTop.setAttribute("tests", str(self.testsRun))
+            self.xmlTop.setAttribute("time", str(timeTaken))
+            self.xmlTop.setAttribute("timestamp", str(self.startTime))
+            try:
+                wFile = open(self.suite.xmlFileName, "w")
+            except IOError:
+                pass
+            else:
+                self.xmlDoc.writexml(wFile, indent="", addindent="  ", newl="\n")
 
     #########################
     def diagnostic(self, text):
