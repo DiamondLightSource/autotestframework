@@ -791,7 +791,7 @@ class Target(object):
             moduleBuildCmd="make clean uninstall; make",
             iocBuildCmd="make clean uninstall; make",
             iocBootCmd=None, epicsDbFiles="", simDevices=[],
-            parameters={}, guiCmds=[], simulationCmds=[]):
+            parameters={}, guiCmds=[], simulationCmds=[], environment=[]):
         self.suite = suite
         self.name = name
         self.iocDirectory = iocDirectory
@@ -803,6 +803,7 @@ class Target(object):
         self.simDevices = {}
         self.parameters = parameters
         self.guiCmds = guiCmds
+        self.environment = environment
         self.guiProcesses = []
         self.simulationCmds = simulationCmds
         self.simulationProcesses = []
@@ -817,6 +818,8 @@ class Target(object):
     #########################
     def prepare(self, doBuild, runIoc, runGui, diagnosticLevel, runSim):
         '''Prepares the target for execution of the test suite.'''
+        for var in self.environment:
+            os.environ[var[0]] = var[1]
         if doBuild and self.moduleBuildCmd is not None:
             p = subprocess.Popen(self.moduleBuildCmd, cwd='.', shell=True)
             p.wait()
