@@ -872,7 +872,7 @@ class Target(object):
         # If the parent still exists, kill it too
         str = subprocess.Popen('ps %s' % pid, shell=True, stdout=subprocess.PIPE).communicate()[0]
         lines = str.split('\n')
-        if len(lines) > 1 and lines[1].find('<defunct>') == -1:
+        if len(lines) > 1:  # and lines[1].find('<defunct>') == -1:
             p = subprocess.Popen("kill -KILL %d" % pid, shell=True)
             p.wait()
 
