@@ -449,6 +449,7 @@ class TestCase(unittest.TestCase):
         d = self.getPv(pv)
         if d != value:
             self.fail("%s[%s] != %s" % (pv, d, value))
+        return d
     
     #########################
     def verifyPvFloat(self, pv, value, delta):
@@ -459,6 +460,7 @@ class TestCase(unittest.TestCase):
         d = self.getPv(pv)
         if d < (value - delta) or d > (value + delta):
             self.fail("%s[%s] != %s +/-%s" % (pv, d, value, delta))
+        return d
     
     #########################
     def verifyPvInRange(self, pv, lower, upper):
@@ -467,6 +469,7 @@ class TestCase(unittest.TestCase):
         d = self.getPv(pv)
         if d < lower or d > upper:
             self.fail("%s[%s] not in %s..%s" % (pv, d, lower, upper))
+        return d
     
     #########################
     def recvResponse(self, devName, rsp, numArgs=-1):
