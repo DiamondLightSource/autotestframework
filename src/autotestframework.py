@@ -413,7 +413,7 @@ class TestCase(unittest.TestCase):
         '''Sends a value to a PV.  Can throw a fail exceptions
         when the underlying caput fails.'''
         try:
-            caput(pv, value)
+            caput(pv, value, wait=true)
         except cothread.cothread.Timedout:
             self.fail("caput of %s timed out" % pv)
         except cothread.cadef.CAException:
