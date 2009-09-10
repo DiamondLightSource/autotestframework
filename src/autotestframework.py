@@ -39,6 +39,8 @@ Execute an automatic test suite.  Options are:
 -b            Performs a build before running the tests.
 -i            Run IOC before running the tests.
 -x <file>     Creates a JUNIT compatible XML results file
+-g            Runs the GUI
+-t <target>   Tests only on specified <target>
 """
 ################################################
 # Epics database record
