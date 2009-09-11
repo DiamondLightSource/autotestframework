@@ -31,6 +31,7 @@ import Queue
 import socket
 from runtests import *
 from xml.dom.minidom import *
+import pyclbr
 
 helpText = """
 Execute an automatic test suite.  Options are:
@@ -609,6 +610,24 @@ class TestSuite(unittest.TestSuite):
             self.diagnostic("EPICS database coverage report:")
             self.diagnostic(self.epicsDatabase.coverageReport())
             self.diagnostic("==============================")
+
+    #########################
+    def autoCreateTests(self, moduleName):
+        """
+        Automatically create TestCase objects from the moduleName module.
+        Any classes not of type TestCase, or which have a name ending
+        in 'Base' are not instantiated.
+        Call this function in the createTests method in a derived class
+        of type TestSuite.
+
+        None autoCreateTests(moduleName)
+        """
+        classes = pyclbr.readmodule(moduleName)
+        for c in classes:
+            if not (c.endswith("Base")):
+                classobj = eval(c)
+                if (issubclass(classobj, TestCase)):
+                    classinstance = classobj(self)
 
     #########################
     def addTest(self, test):
