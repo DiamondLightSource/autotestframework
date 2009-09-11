@@ -426,6 +426,11 @@ class TestCase(unittest.TestCase):
         self.suite.command(devName, text)
 
     #########################
+    def simulation(self, devName):
+        '''Return simulation device.'''
+        return self.suite.simulation(devName)
+
+    #########################
     def simulationDevicePresent(self, devName):
         '''Returns True if the device simulation is present.'''
         return self.suite.simulationDevicePresent(devName)
@@ -642,6 +647,11 @@ class TestSuite(unittest.TestSuite):
     def command(self, devName, text):
         '''Send a command to a simulation device.'''
         self.target.command(devName, text)
+        
+    #########################        
+    def simulation(self, devName):
+        '''Return simulation device.'''
+        return self.target.simulation(devName)
 
     #########################
     def simulationDevicePresent(self, devName):
@@ -894,7 +904,7 @@ class Target(object):
         # If the parent still exists, kill it too
         str = subprocess.Popen('ps %s' % pid, shell=True, stdout=subprocess.PIPE).communicate()[0]
         lines = str.split('\n')
-        if len(lines) > 1:  # and lines[1].find('<defunct>') == -1:
+        if len(lines) > 1:
             p = subprocess.Popen("kill -KILL %d" % pid, shell=True)
             p.wait()
 
@@ -911,6 +921,12 @@ class Target(object):
         '''Send a command to a simulation device.'''
         if devName in self.simDevices:
             self.simDevices[devName].command(text)
+
+    #########################
+    def simulation(self, devName):
+        '''Return simulation device.'''
+        if devName in self.simDevices:
+            return self.simDevices[devName].simulation()
 
     #########################
     def simulationDevicePresent(self, devName):
@@ -940,10 +956,11 @@ class SimDevice(object):
     with a target.'''
     
     #########################
-    def __init__(self, name, simulationPort, pythonShell=True):
+    def __init__(self, name, simulationPort, pythonShell=True, rpc = False):
         # Initialise
         self.sim = None
         self.simulationPort = simulationPort
+        self.rpc = rpc
         self.name = name
         self.suite = None
         self.pythonShell = pythonShell
@@ -958,18 +975,29 @@ class SimDevice(object):
         '''Prepare the simulation device for running the test cases.'''
         self.suite = suite
         try:
-            self.sim = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self.sim.connect(("localhost", self.simulationPort))
-            self.sim.settimeout(0.1)
-            self.swallowInput()
+            if self.rpc:
+                import rpyc
+                self.conn = rpyc.classic.connect("localhost", port=self.simulationPort)
+                self.sim = self.conn.root.simulation()
+            else:
+                self.sim = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                self.sim.connect(("localhost", self.simulationPort))
+                self.sim.settimeout(0.1)
+                self.swallowInput()
         except:
             self.sim = None
         # Initialise response processor
         self.response = []
-        # Initialise the coverage tracking
-        self.command("covclear")
-        # Initialise the diagnostic level
-        self.command("diaglevel %s" % diagnosticLevel)
+        if not self.rpc:
+            # Initialise the coverage tracking        
+            self.command("covclear")
+            # Initialise the diagnostic level
+            self.command("diaglevel %s" % diagnosticLevel)
+        else:
+            # Initialise the coverage tracking                
+            self.sim.clearCoverage()
+            # Initialise the diagnostic level            
+            self.sim.diaglevel = diagnosticLevel            
 
     #########################
     def destroy(self):
@@ -985,31 +1013,45 @@ class SimDevice(object):
         if self.sim is not None:
             result += "==============================\n"
             result += "Sim device %s coverage report:\n" % self.name
-            self.command("covbranches")
-            branches = self.recvResponse("covbranches")
-            self.command("coverage")
-            coverage = self.recvResponse("coverage")
+            if self.rpc:                        
+                branches = self.sim.branches
+                coverage = self.sim.coverage
+            else:
+                self.command("covbranches")
+                branches = self.recvResponse("covbranches")
+                self.command("coverage")
+                coverage = self.recvResponse("coverage")
+            if coverage is None:
+                coverage = set()
+            else:
+                coverage = coverage.copy()
             if branches is not None:
                 for item in branches:
-                    if coverage is not None and item in coverage:
+                    if item in coverage:
                         result += "    %s: ok\n" % item
                         coverage.remove(item)
                     else:
                         result += "    %s: not covered\n" % item
-            if coverage is not None:
-                for item in coverage:
-                    result += "    %s: ok but not declared\n" % item
+            for item in coverage:
+                result += "    %s: ok but not declared\n" % item
         return result
 
     #########################
     def command(self, text):
         '''Send a command to the simulation.'''
         if self.sim is not None:
+            assert not self.rpc, "command interface not supported over rpc, use simulation() and call the function directly"
             self.suite.diagnostic("Command[%s]: %s" % (self.name, text), 2)
             if self.pythonShell:
                 self.sim.sendall('self.command("%s")\n' % text)
             else:
                 self.sim.sendall('%s\n' % text)
+
+    #########################
+    def simulation(self):
+        '''Get the simulation object using RPC'''
+        if self.rpc and self.sim is not None:    
+            return self.sim        
 
     #########################
     def recvResponse(self, rsp, numArgs=-1):
@@ -1064,84 +1106,6 @@ class SimDevice(object):
             except socket.timeout:
                 pass
 
-################################################
-# Updated simulation serial_device class.
-class serial_device(dls.serial_sim.serial_device):
-    """An improvement to the basic simulation serial-device class that
-    changes certain class-scope variables to instance scope.
-    """
-    #########################
-    def __init__(self, protocolBranches=[]):
-        # Super-class class scope variables converted to instance scope.
-        self.inq = Queue.Queue()
-        self.outq = Queue.Queue()
-        self.server_type = None
-        self.started = False
-        # Test framework support
-        self.power = False
-        self.coverage = set([])
-        self.diagLevel = 0
-        self.branches = protocolBranches
-
-    #########################
-    def isPowerOn(self):
-        '''Returns true if the device power is on.'''
-        return self.power
-
-    #########################
-    def diagnosticLevel(self):
-        '''Returns the current diagnostic level.'''
-        return self.diagLevel
-        
-    #########################
-    def covered(self, branchName):
-        '''Indicates that a branch has been executed.'''
-        self.coverage.add(branchName)
-        
-    #########################
-    def command(self, text):
-        '''The interface for the test framework.  The text must be a space
-        seperated list of arguments.  Results are 'returned' by just
-        printing them out.  This super class implementation provides the
-        common commands for all simulation devices.  Override to provide
-        specific commands but don't forget to call this base class version
-        when the override is not applicable.'''
-        args = text.split()
-        if args[0] == "off":
-            self.power = False
-        elif args[0] == "on":
-            if not self.power:
-                self.initialise()
-            self.power = True
-        elif args[0] == "power":
-            self.response("power %d" % self.power)
-        elif args[0] == "coverage":
-            reply = "coverage"
-            for item in self.coverage:
-                reply = reply + " " + item
-            self.response(reply)
-        elif args[0] == "covclear":
-            self.coverage = set([])
-        elif args[0] == "covbranches":
-            reply = "covbranches"
-            for item in self.branches:
-                reply = reply + " " + item
-            self.response(reply)
-        elif args[0] == "diaglevel":
-            self.diagLevel = int(args[1])
-
-    #########################
-    def initialise(self):
-        '''Override this function to implement power on initialisation.'''
-        pass
-        
-    #########################
-    def response(self, text):
-        '''Call the function to return text to the test framework.  The current
-        implementation just prints it out on the assumption that the test
-        framework is monitoring standard out.  One day, a proper protocol
-        may be invented.'''
-        print text  
 
 ###########################
 def main():
