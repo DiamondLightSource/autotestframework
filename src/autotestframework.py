@@ -722,6 +722,7 @@ class TestResult(unittest.TestResult):
         self.stream = stream
         self.numCases = numCases
         self.startTime = time.time()
+        self.caseStartTime = self.startTime
         self.failures = []
         self.suite = suite
         self.xmlDoc = None
@@ -747,7 +748,8 @@ class TestResult(unittest.TestResult):
     def createCaseXmlElement(self, test):
         # Calculate the elapsed time
         stopTime = time.time()
-        timeTaken = float(stopTime - self.startTime)
+        timeTaken = float(stopTime - self.caseStartTime)
+        self.caseStartTime = stopTime
         # Create the XML element
         element = self.xmlDoc.createElement("testcase")
         self.xmlTop.appendChild(element)
