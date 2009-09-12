@@ -23,6 +23,7 @@ Options:
    -p <processes> The number of tests to run in parallel, default 1.
    -l <name>      Create a summary log file.
    -x             Create junit compatible XML results files.
+   -hudson        The tests are being run under Hudson.
 '''
 
 import os, sys, subprocess, thread, socket, select
@@ -58,6 +59,7 @@ class RunTests(object):
         self.resultProcessThreads = {}
         self.summaryLogFile = None
         self.xmlResultFiles = False
+        self.underHudson = False
         if self.processArguments():
             self.useConfigFile()
             # Create some lock objects
@@ -154,6 +156,8 @@ class RunTests(object):
                             if self.xmlResultFiles:
                                 options += " -x "
                                 options += xmlResults
+                            if self.underHudson:
+                                options += " -hudson"
                             cmd = ""
                             for export in self.exports:
                                 cmd += export + " "
@@ -200,6 +204,8 @@ class RunTests(object):
                 elif arg == "-h":
                     print helpText
                     result = False
+                elif arg == "-hudson":
+                    self.underHudson = True
             elif state == "module":
                 self.module = arg
                 state = "none"

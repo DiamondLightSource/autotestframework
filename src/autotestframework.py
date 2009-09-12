@@ -42,7 +42,17 @@ Execute an automatic test suite.  Options are:
 -x <file>     Creates a JUNIT compatible XML results file
 -g            Runs the GUI
 -t <target>   Tests only on specified <target>
+-hudson       The test suite is running under Hudson
+-c <case>     Execute only this case
 """
+
+def getClassName(object):
+    '''Returns the class name of an object'''
+    stuff = str(object.__class__)
+    className = string.split(stuff, '.')[1]
+    className = string.split(className, "'")[0]
+    return className
+
 ################################################
 # Epics database record
 class EpicsRecord(object):
@@ -522,6 +532,7 @@ class TestSuite(unittest.TestSuite):
         self.serverSocketName = None
         self.resultSocket = None
         self.xmlFileName = None
+        self.underHudson = False
         # Parse any command line arguments
         if self.processArguments():
             # Try to open a connection to the results server
@@ -562,6 +573,8 @@ class TestSuite(unittest.TestSuite):
                     self.runSimulation = True
                 elif arg == "-x":
                     state = "xmlFile"
+                elif arg == "-hudson":
+                    self.underHudson = True
             elif state == "diagnosticLevel":
                 self.diagnosticLevel = int(arg)
                 state = "none"
@@ -580,7 +593,7 @@ class TestSuite(unittest.TestSuite):
         return result
         
     #########################
-    def prepare(self, epicsDbFiles, iocDirectory):
+    def prepare(self, epicsDbFiles, iocDirectory, underHudson):
         '''Prepare the test suite for running the test cases.'''
         # Read the EPICS database if provided
         self.epicsDatabase = EpicsDatabase(self)
@@ -637,9 +650,7 @@ class TestSuite(unittest.TestSuite):
     #########################
     def addTest(self, test):
         '''Add a test case to the suite.'''
-        className = str(test.__class__)
-        className = string.split(className, '.')[1]
-        className = string.split(className, "'")[0]
+        className = getClassName(test)
         if self.onlyTestCase is None or self.onlyTestCase == className:
             unittest.TestSuite.addTest(self, test)
 
@@ -669,8 +680,8 @@ class TestSuite(unittest.TestSuite):
         for self.target in self.targets:
             if self.onlyTarget is None or self.onlyTarget == self.target.name:
                 self.target.prepare(self.doBuild, self.runIoc, self.runGui, 
-                    self.diagnosticLevel, self.runSimulation)
-                self.prepare(self.target.epicsDbFiles, self.target.iocDirectory)
+                    self.diagnosticLevel, self.runSimulation, self.underHudson)
+                self.prepare(self.target.epicsDbFiles, self.target.iocDirectory, self.underHudson)
                 self.diagnostic("==============================")
                 self.results = TestResult(self.countTestCases(), sys.stdout, self)
                 self.run(self.results)
@@ -728,16 +739,21 @@ class TestResult(unittest.TestResult):
     #########################
     def addSuccess(self, test):
         '''Called when a test case has run successfully.'''
-        self.outputText("ok %s - %s\n" % (self.testsRun, self.getDescription(test)))
+        self.outputText("ok %s - %s : %s\n" % (self.testsRun, getClassName(test), self.getDescription(test)))
         if self.xmlTop is not None:
             element = self.createCaseXmlElement(test)
 
     #########################
     def createCaseXmlElement(self, test):
+        # Calculate the elapsed time
+        stopTime = time.time()
+        timeTaken = float(stopTime - self.startTime)
+        # Create the XML element
         element = self.xmlDoc.createElement("testcase")
         self.xmlTop.appendChild(element)
-        element.setAttribute("classname", test.__module__)
-        element.setAttribute("name", str(test.__class__.__name__))
+        element.setAttribute("classname", getClassName(self.suite))
+        element.setAttribute("name", getClassName(test))
+        element.setAttribute("time", str(timeTaken))
         return element
 
     #########################
@@ -754,12 +770,19 @@ class TestResult(unittest.TestResult):
         for text in apply(traceback.format_exception, err):
             for line in string.split(text, "\n"):
                 self.outputText("# %s\n" % line)
-        self.outputText("not ok %s - %s\n" % (self.testsRun, self.getDescription(test)))
+        self.outputText("not ok %s - %s : %s\n" % (self.testsRun, getClassName(test), self.getDescription(test)))
         if self.xmlTop is not None:
             element = self.createCaseXmlElement(test)
             errorElement = self.xmlDoc.createElement("error")
             element.appendChild(errorElement)
-            errorElement.setAttribute("message", "Test failure")
+            message = traceback.format_exception_only(err[0], err[1])[-1].strip()
+            errorElement.setAttribute("message", message)
+            textList = traceback.format_exception(err[0], err[1], err[2])
+            text = ""
+            for line in textList:
+                text += line + '\n'
+            textElement = self.xmlDoc.createTextNode(text)
+            errorElement.appendChild(textElement)
 
     #########################
     def report(self):
@@ -825,7 +848,8 @@ class Target(object):
             moduleBuildCmd="make clean uninstall; make",
             iocBuildCmd="make clean uninstall; make",
             iocBootCmd=None, epicsDbFiles="", simDevices=[],
-            parameters={}, guiCmds=[], simulationCmds=[], environment=[]):
+            parameters={}, guiCmds=[], simulationCmds=[], environment=[],
+            runIocInScreenUnderHudson=False):
         self.suite = suite
         self.name = name
         self.iocDirectory = iocDirectory
@@ -841,6 +865,7 @@ class Target(object):
         self.guiProcesses = []
         self.simulationCmds = simulationCmds
         self.simulationProcesses = []
+        self.runIocInScreenUnderHudson = runIocInScreenUnderHudson
         for device in simDevices:
             self.simDevices[device.name] = device
         self.suite.addTarget(self)
@@ -850,7 +875,7 @@ class Target(object):
         self.destroy()
 
     #########################
-    def prepare(self, doBuild, runIoc, runGui, diagnosticLevel, runSim):
+    def prepare(self, doBuild, runIoc, runGui, diagnosticLevel, runSim, underHudson):
         '''Prepares the target for execution of the test suite.'''
         for var in self.environment:
             os.environ[var[0]] = var[1]
@@ -866,11 +891,14 @@ class Target(object):
                 self.simulationProcesses.append(p)
                 Sleep(10)
         if runIoc and self.iocBootCmd is not None:
-            self.targetProcess = subprocess.Popen(self.iocBootCmd,
+            bootCmd = self.iocBootCmd
+            if self.runIocInScreenUnderHudson and underHudson:
+                bootCmd = "screen -D -m -L " + bootCmd
+            self.targetProcess = subprocess.Popen(bootCmd,
                 cwd=self.iocDirectory, shell=True)
             Sleep(10)
         for name, device in self.simDevices.iteritems():
-            device.prepare(diagnosticLevel, self.suite)
+            device.prepare(diagnosticLevel, self.suite, underHudson)
         if runGui:
             for guiCmd in self.guiCmds:
                 p = subprocess.Popen(guiCmd, cwd='.', shell=True)
@@ -971,7 +999,7 @@ class SimDevice(object):
         return self.sim is not None
 
     #########################
-    def prepare(self, diagnosticLevel, suite):
+    def prepare(self, diagnosticLevel, suite, underHudson):
         '''Prepare the simulation device for running the test cases.'''
         self.suite = suite
         try:
@@ -984,8 +1012,9 @@ class SimDevice(object):
                 self.sim.connect(("localhost", self.simulationPort))
                 self.sim.settimeout(0.1)
                 self.swallowInput()
-        except:
+        except Exception, e:
             self.sim = None
+            print "***Error", e
         # Initialise response processor
         self.response = []
         if not self.rpc:
@@ -1024,7 +1053,7 @@ class SimDevice(object):
             if coverage is None:
                 coverage = set()
             else:
-                coverage = coverage.copy()
+                coverage = set(coverage)
             if branches is not None:
                 for item in branches:
                     if item in coverage:
