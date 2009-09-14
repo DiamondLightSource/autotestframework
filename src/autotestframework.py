@@ -418,7 +418,7 @@ class TestCase(unittest.TestCase):
     def putPv(self, pv, value, wait=True, throw=False, **kargs):
         '''Sends a value to a PV.  Can throw a fail exceptions
         when the underlying caput fails.'''
-        rc = caput(pv, value, wait=wait, **kargs):
+        rc = caput(pv, value, wait=wait, **kargs)
         if not rc:
             self.fail("caput failed: " + str(rc))
     
