@@ -12,7 +12,6 @@ database coverage report and (where possible) a protocol coverage report.
 from pkg_resources import require
 require('numpy')
 require('cothread')
-require('dls.serial_sim')
 import cothread
 from cothread import *
 from cothread.catools import *
@@ -26,12 +25,12 @@ import time
 import traceback
 import string
 import types
-import dls.serial_sim
 import Queue
 import socket
 from runtests import *
 from xml.dom.minidom import *
 import pyclbr
+import traceback
 
 helpText = """
 Execute an automatic test suite.  Options are:
@@ -406,29 +405,22 @@ class TestCase(unittest.TestCase):
         self.suite.addTest(self)
 
     #########################
-    def getPv(self, pv):
+    def getPv(self, pv, **kargs):
         '''Gets a value from a PV.  Can only throw fail exceptions
         when the underlying caget fails, no checking of the retrieved
         value is performed.'''
-        try:
-            d = caget(pv)
-        except cothread.cothread.Timedout:
-            self.fail("caget of %s timed out" % pv)
-        except cothread.cadef.CAException:
-            self.fail("caget of %s threw exception" % pv)
-        else:
-            return d
+        d = caget(pv, throw=False, **kargs)
+        if not d.ok:
+            self.fail("caget failed: " + str(d))
+        return d
     
     #########################
-    def putPv(self, pv, value):
+    def putPv(self, pv, value, wait=True, throw=False, **kargs):
         '''Sends a value to a PV.  Can throw a fail exceptions
         when the underlying caput fails.'''
-        try:
-            caput(pv, value, wait=True)
-        except cothread.cothread.Timedout:
-            self.fail("caput of %s timed out" % pv)
-        except cothread.cadef.CAException:
-            self.fail("caput of %s threw exception" % pv)
+        rc = caput(pv, value, wait=wait, **kargs):
+        if not rc:
+            self.fail("caput failed: " + str(rc))
     
     #########################
     def command(self, devName, text):
@@ -459,30 +451,30 @@ class TestCase(unittest.TestCase):
             self.fail("%s not in %s..%s" % (value, lower, upper))
 
     #########################
-    def verifyPv(self, pv, value):
+    def verifyPv(self, pv, value, **kargs):
         '''Reads the specified PV and checks it has the specified value.
         Throws a fail exception if the caget or the check fails.'''
-        d = self.getPv(pv)
+        d = self.getPv(pv, **kargs)
         if d != value:
             self.fail("%s[%s] != %s" % (pv, d, value))
         return d
     
     #########################
-    def verifyPvFloat(self, pv, value, delta):
+    def verifyPvFloat(self, pv, value, delta, datatype=float, **kargs):
         '''Reads the specified PV and checks it has the specified value
         within the given error.  Usually used for checking floating point
         values where equality is unreliable.  Throws a fail exception if
         the caget or the check fails.'''
-        d = self.getPv(pv)
+        d = self.getPv(pv, datatype=datatype, **kargs)
         if d < (value - delta) or d > (value + delta):
             self.fail("%s[%s] != %s +/-%s" % (pv, d, value, delta))
         return d
     
     #########################
-    def verifyPvInRange(self, pv, lower, upper):
+    def verifyPvInRange(self, pv, lower, upper, **kargs):
         '''Reads the specified PV and checks itis within the given range.
         Throws a fail exception if the caget or the check fails.'''
-        d = self.getPv(pv)
+        d = self.getPv(pv, **kargs)
         if d < lower or d > upper:
             self.fail("%s[%s] not in %s..%s" % (pv, d, lower, upper))
         return d
@@ -1016,7 +1008,7 @@ class SimDevice(object):
                 self.swallowInput()
         except Exception, e:
             self.sim = None
-            print "***Error", e
+            traceback.print_exc()
         # Initialise response processor
         self.response = []
         if not self.rpc:
