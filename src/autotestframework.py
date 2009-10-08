@@ -1066,7 +1066,7 @@ class SimDevice(object):
             assert not self.rpc, "command interface not supported over rpc, use simulation() and call the function directly"
             self.suite.diagnostic("Command[%s]: %s" % (self.name, text), 2)
             if self.pythonShell:
-                self.sim.sendall('self.command("%s")\n' % text)
+                self.sim.sendall('self.command(%s)\n' % repr(text))
             else:
                 self.sim.sendall('%s\n' % text)
 
