@@ -29,8 +29,10 @@ import Queue
 import socket
 from runtests import *
 from xml.dom.minidom import *
+import urllib
 import pyclbr
 import traceback
+import telnetlib
 
 helpText = """
 Execute an automatic test suite.  Options are:
@@ -499,6 +501,65 @@ class TestCase(unittest.TestCase):
         '''Return a parameter.'''
         return self.suite.param(name)
 
+    #########################
+    def verifyIocTelnet(self, text, timeout=0.0):
+        '''Verifies that the text has been received since the last
+           time the receive buffer was cleared.  Will wait for up
+           to the timeout for the text to be received. '''
+        if self.suite.target.iocTelnetConnection is None:
+            self.fail('No telnet connection to IOC')
+        elif self.suite.target.iocTelnetConnection.waitFor(text, timeout):
+            pass
+        else:
+            self.fail('Timeout waiting for %s' % repr(text))
+
+    #########################
+    def writeIocTelnet(self, text):
+        '''Writes the text to the IOC telnet port.'''
+        if self.suite.target.iocTelnetConnection is None:
+            self.fail('No telnet connection to IOC')
+        else:
+            self.suite.target.iocTelnetConnection.write(text)
+
+    #########################
+    def clearIocTelnet(self):
+        '''Clears the IOC telnet ports receive buffer.'''
+        if self.suite.target.iocTelnetConnection is None:
+            self.fail('No telnet connection to IOC')
+        else:
+            self.suite.target.iocTelnetConnection.clearReceivedText()
+
+    #########################
+    def moveMotorTo(self, pv, val):
+        # Send the motor to the required position.  Note that the
+        # operation of the DONE flag is somewhat unreliable, it will
+        # often perform false transitions.  The MOVN flag is used
+        # with the DONE flag to try and avoid false triggering of
+        # the movement stages, especially the wait for the move to begin.
+        self.putPv(pv, val, wait=False)
+        # Wait for the move to start
+        timeout = 10
+        done = self.getPv(pv+".DMOV")
+        movn = self.getPv(pv+".MOVN")
+        while (done or not movn) and timeout > 0:
+            self.sleep(1.0)
+            timeout -= 1
+            movn = self.getPv(pv+".MOVN")
+            done = self.getPv(pv+".DMOV")
+        # Wait for the move to complete
+        timeout = 100
+        done = self.getPv(pv+".DMOV")
+        movn = self.getPv(pv+".MOVN")
+        while (not done or movn) and timeout > 0:
+            self.sleep(1.0)
+            timeout -= 1
+            movn = self.getPv(pv+".MOVN")
+            done = self.getPv(pv+".DMOV")
+        # If the move did not complete, fail
+        if not done:
+            self.fail("%s: Move to %s did not complete" % (pv, val))
+            
+
 ################################################
 # Test suite super class
 class TestSuite(unittest.TestSuite):
@@ -832,6 +893,81 @@ class TestResult(unittest.TestResult):
         self.suite.sendToResultServer(text)
 
 ################################################
+# Class that handles a telnet connection
+class TelnetConnection(object):
+    '''Manage a telnet connection, placing all received text in
+       the receiveText member.'''
+    def __init__(self, host, port, logFile):
+        print "Opening telnet port %s:%s" % (host, port)
+        self.telnet = telnetlib.Telnet()
+        self.telnet.open(host, port)
+        self.receivedText = ''
+        self.logFile = None
+        if logFile is not None:
+            print "Opening telnet log file %s" % logFile
+            self.logFile = open(logFile, 'w')
+        self.threadId = thread.start_new_thread(self.receiveThread, ())
+
+    def receiveThread(self):
+        going = True
+        while going:
+            text = self.telnet.read_some()
+            going = len(text) > 0
+            self.receivedText += text
+            if self.logFile is not None:
+                self.logFile.write(text)
+
+    def close(self):
+        self.telnet.close()
+
+    def waitFor(self, text, timeout):
+        '''Waits for the specified text to be received.  Any text
+           in the receivedText variable is checked first.  Returns
+           True if the text is found, False if not.'''
+        timeRemaining = timeout
+        found = self.receivedText.find(text) >= 0
+        while not found and timeRemaining > 0.0:
+            Sleep(0.1)
+            timeRemaining -= 0.1
+            found = self.receivedText.find(text) >= 0
+        #print "Looking for %s in %s" % (repr(text), repr(self.receivedText))
+        return found
+
+    def write(self, text):
+        self.telnet.write(text)
+
+    def clearReceivedText(self):
+        self.receivedText = ''
+        
+################################################
+# Class that handles an IP power 9258 power switch
+class PowerSwitch(object):
+    '''Manage a power switch channel.'''
+    def __init__(self, host, chan, user='admin', password='12345678'):
+        self.host = host
+        self.chan = chan
+        self.user = user
+        self.password = password
+    def on(self):
+        '''Switches the channel on, returns True for success.'''
+        obj = urllib.urlopen('http://%s:%s@%s/Set.cmd?CMD=SetPower+P6%s=1' % \
+            (self.user, self.password, self.host, self.chan))
+        dom = xml.dom.minidom.parse(obj)
+        reply = dom.getElementsByTagName('html')[0].firstChild.nodeValue
+        return reply == ('P6%s=1' % self.chan)
+    def off(self):
+        '''Switches the channel off, returns True for success.'''
+        obj = urllib.urlopen('http://%s:%s@%s/Set.cmd?CMD=SetPower+P6%s=0' % \
+            (self.user, self.password, self.host, self.chan))
+        dom = xml.dom.minidom.parse(obj)
+        reply = dom.getElementsByTagName('html')[0].firstChild.nodeValue
+        return reply == ('P6%s=0' % self.chan)
+    def reset(self):
+        self.off()
+        Sleep(5)
+        self.on()
+
+################################################
 # Target definition class
 class Target(object):
     '''Instances of this class define a target that the test suite is to
@@ -843,7 +979,10 @@ class Target(object):
             iocBuildCmd="make clean uninstall; make",
             iocBootCmd=None, epicsDbFiles="", simDevices=[],
             parameters={}, guiCmds=[], simulationCmds=[], environment=[],
-            runIocInScreenUnderHudson=False):
+            runIocInScreenUnderHudson=False, vxWorksIoc=False,
+            iocHardwareName='', 
+            iocTelnetAddress=None, iocTelnetPort=None, iocTelnetLogFile=None,
+            iocPowerControlAddress=None, iocPowerControlChan=None):
         self.suite = suite
         self.name = name
         self.iocDirectory = iocDirectory
@@ -860,6 +999,15 @@ class Target(object):
         self.simulationCmds = simulationCmds
         self.simulationProcesses = []
         self.runIocInScreenUnderHudson = runIocInScreenUnderHudson
+        self.vxWorksIoc = vxWorksIoc
+        self.iocHardwareName = iocHardwareName
+        self.iocTelnetAddress = iocTelnetAddress
+        self.iocTelnetPort = iocTelnetPort
+        self.iocTelnetLogFile = iocTelnetLogFile
+        self.iocTelnetConnection = None
+        self.iocPowerSwitch = None
+        if iocPowerControlAddress is not None and iocPowerControlChan is not None:
+            self.iocPowerSwitch = PowerSwitch(iocPowerControlAddress, iocPowerControlChan)
         for device in simDevices:
             self.simDevices[device.name] = device
         self.suite.addTarget(self)
@@ -885,12 +1033,31 @@ class Target(object):
                 self.simulationProcesses.append(p)
                 Sleep(10)
         if runIoc and self.iocBootCmd is not None:
-            bootCmd = self.iocBootCmd
-            if self.runIocInScreenUnderHudson and underHudson:
-                bootCmd = "screen -D -m -L " + bootCmd
-            self.targetProcess = subprocess.Popen(bootCmd,
-                cwd=self.iocDirectory, shell=True)
-            Sleep(10)
+            if self.vxWorksIoc:
+                #self.prepareRedirector()
+                self.iocTelnetConnection = TelnetConnection(self.iocTelnetAddress,
+                    self.iocTelnetPort, self.iocTelnetLogFile)
+                print 'Resetting IOC'
+                if self.iocPowerSwitch is not None:
+                    self.iocPowerSwitch.reset()
+                else:
+                    Sleep(1)
+                    self.iocTelnetConnection.write('\r')
+                    Sleep(1)
+                    self.iocTelnetConnection.write('reboot')
+                print 'Waiting for auto-boot message'
+                ok = self.iocTelnetConnection.waitFor('Press any key to stop auto-boot', 60)
+                print "    ok=%s" % ok
+                print 'Waiting for script loaded message'
+                ok = self.iocTelnetConnection.waitFor('Done executing startup script', 120)
+                print "    ok=%s" % ok
+            else:  # Linux soft IOC
+                bootCmd = self.iocBootCmd
+                if self.runIocInScreenUnderHudson and underHudson:
+                    bootCmd = "screen -D -m -L " + bootCmd
+                self.targetProcess = subprocess.Popen(bootCmd,
+                    cwd=self.iocDirectory, shell=True)
+                Sleep(10)
         for name, device in self.simDevices.iteritems():
             device.prepare(diagnosticLevel, self.suite, underHudson)
         if runGui:
@@ -898,7 +1065,38 @@ class Target(object):
                 p = subprocess.Popen(guiCmd, cwd='.', shell=True)
                 self.guiProcesses.append(p)
             Sleep(10)
-        
+
+    #########################
+    def prepareRedirector(self):
+        '''Programs the redirector to load the IOC executable.'''
+        # The path of the executable
+        iocPath = '%s/%s/%s' % (os.getcwd(), self.iocDirectory, self.iocBootCmd)
+        print '@A:%s' % repr(iocPath)
+        # Is the redirector already correct?
+        str = subprocess.Popen('configure-ioc show %s' % self.iocHardwareName, 
+            shell=True, stdout=subprocess.PIPE).communicate()[0]
+        pathNow = str.strip().split()[1]
+        print '@1:%s' % repr(pathNow)
+        if pathNow != iocPath:
+            # No, so set it
+            str = subprocess.Popen('configure-ioc edit %s %s' % (self.iocHardwareName, iocPath),
+                shell=True, stdout=subprocess.PIPE).communicate()[0]
+            print '@2:%s' % repr(str)
+            # Wait for the redirector to report the correct path
+            str = subprocess.Popen('configure-ioc show %s' % self.iocHardwareName, 
+                shell=True, stdout=subprocess.PIPE).communicate()[0]
+            pathNow = str.strip().split()[1]
+            print '@3:%s' % repr(pathNow)
+            timeout = 100
+            while pathNow != iocPath and timeout > 0:
+                Sleep(2)
+                timeout -= 2
+                str = subprocess.Popen('configure-ioc show %s' % self.iocHardwareName, 
+                    shell=True, stdout=subprocess.PIPE).communicate()[0]
+                pathNow = str.strip().split()[1]
+                print '@4:%s' % repr(pathNow)
+        return pathNow == iocPath
+            
     #########################
     def destroy(self):
         '''Returns the target to it's initial state.'''
@@ -907,6 +1105,9 @@ class Target(object):
             self.targetProcess = None
             p = subprocess.Popen("stty sane", shell=True)
             p.wait()
+        if self.iocTelnetConnection is not None:
+            self.iocTelnetConnection.close()
+            self.iocTelnetConnection = None
         for simulationProcess in self.simulationProcesses:
             self.killProcessAndChildren(simulationProcess.pid)
         self.simulationProcesses = []
