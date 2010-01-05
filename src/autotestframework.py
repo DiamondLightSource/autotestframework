@@ -897,7 +897,7 @@ class TestResult(unittest.TestResult):
 class TelnetConnection(object):
     '''Manage a telnet connection, placing all received text in
        the receiveText member.'''
-    def __init__(self, host, port, logFile):
+    def __init__(self, host, port, logFile=None):
         print "Opening telnet port %s:%s" % (host, port)
         self.telnet = telnetlib.Telnet()
         self.telnet.open(host, port)
@@ -905,7 +905,7 @@ class TelnetConnection(object):
         self.logFile = None
         if logFile is not None:
             print "Opening telnet log file %s" % logFile
-            self.logFile = open(logFile, 'w')
+            self.logFile = open(logFile, 'a+')
         self.threadId = thread.start_new_thread(self.receiveThread, ())
 
     def receiveThread(self):
@@ -916,6 +916,8 @@ class TelnetConnection(object):
             self.receivedText += text
             if self.logFile is not None:
                 self.logFile.write(text)
+                self.logFile.flush()
+                os.fsync(self.logFile.fileno())
 
     def close(self):
         self.telnet.close()
@@ -938,6 +940,9 @@ class TelnetConnection(object):
 
     def clearReceivedText(self):
         self.receivedText = ''
+
+    def getReceivedText(self):
+        return self.receivedText
         
 ################################################
 # Class that handles an IP power 9258 power switch
@@ -968,6 +973,19 @@ class PowerSwitch(object):
         self.on()
 
 ################################################
+# Class that handles the crate monitor
+class CrateMonitor(object):
+    '''Manage a crate monitor.'''
+    def __init__(self, host, port):
+        self.host = host
+        self.port = port
+        self.telnet = telnetlib.Telnet()
+        self.telnet.open(host, port)
+    def reset(self):
+        '''Send a reset command.'''
+        self.telnet.write('R,7E\r')
+
+################################################
 # Target definition class
 class Target(object):
     '''Instances of this class define a target that the test suite is to
@@ -982,7 +1000,8 @@ class Target(object):
             runIocInScreenUnderHudson=False, vxWorksIoc=False,
             iocHardwareName='', 
             iocTelnetAddress=None, iocTelnetPort=None, iocTelnetLogFile=None,
-            iocPowerControlAddress=None, iocPowerControlChan=None):
+            iocPowerControlAddress=None, iocPowerControlChan=None,
+            iocCrateMonitorAddress=None, iocCrateMonitorPort=None):
         self.suite = suite
         self.name = name
         self.iocDirectory = iocDirectory
@@ -1006,6 +1025,9 @@ class Target(object):
         self.iocTelnetLogFile = iocTelnetLogFile
         self.iocTelnetConnection = None
         self.iocPowerSwitch = None
+        self.iocCrateMonitor = None
+        if iocCrateMonitorAddress is not None and iocCrateMonitorPort is not None:
+            self.iocCrateMonitor = CrateMonitor(iocCrateMonitorAddress, iocCrateMonitorPort)
         if iocPowerControlAddress is not None and iocPowerControlChan is not None:
             self.iocPowerSwitch = PowerSwitch(iocPowerControlAddress, iocPowerControlChan)
         for device in simDevices:
@@ -1034,12 +1056,14 @@ class Target(object):
                 Sleep(10)
         if runIoc and self.iocBootCmd is not None:
             if self.vxWorksIoc:
-                #self.prepareRedirector()
+                self.prepareRedirector()
                 self.iocTelnetConnection = TelnetConnection(self.iocTelnetAddress,
                     self.iocTelnetPort, self.iocTelnetLogFile)
                 print 'Resetting IOC'
                 if self.iocPowerSwitch is not None:
                     self.iocPowerSwitch.reset()
+                elif self.iocCrateMonitor is not None:
+                    self.iocCrateMonitor.reset()
                 else:
                     Sleep(1)
                     self.iocTelnetConnection.write('\r')
