@@ -23,10 +23,10 @@ Options:
    -p <processes> The number of tests to run in parallel, default 1.
    -l <name>      Create a summary log file.
    -x             Create junit compatible XML results files.
-   -hudson        The tests are being run under Hudson.
+   --hudson       The tests are being run under Hudson.
 '''
 
-import os, sys, subprocess, thread, socket, select
+import os, sys, subprocess, thread, socket, select, getopt
 
 class RunTests(object):
 
@@ -157,7 +157,7 @@ class RunTests(object):
                                 options += " -x "
                                 options += xmlResults
                             if self.underHudson:
-                                options += " -hudson"
+                                options += " --hudson"
                             cmd = ""
                             for export in self.exports:
                                 cmd += export + " "
@@ -169,70 +169,49 @@ class RunTests(object):
     def processArguments(self):
         """Process the command line arguments.
         """
-        result = True
-        state = "none"
-        for arg in sys.argv:
-            if state == "none":
-                if arg == "-m":
-                    state = "module"
-                elif arg == "-s":
-                    state = "directory"
-                elif arg == "-d":
-                    state = "diagnostic"
-                elif arg == "-t":
-                    state = "target"
-                elif arg == "-c":
-                    state = "case"
-                elif arg == "-f":
-                    state = "configFile"
-                elif arg == "-p":
-                    state = "processes"
-                elif arg == "-l":
-                    state = "logFile"
-                elif arg == "-x":
-                    self.xmlResultFiles = True
-                elif arg == "-b":
-                    self.build = True
-                elif arg == "-i":
-                    self.runIoc = True
-                elif arg == "-g":
-                    self.runGui = True
-                elif arg == "-e":
-                    self.runEmulation = True
-                elif arg == "-q":
-                    self.logOutput = True
-                elif arg == "-h":
-                    print helpText
-                    result = False
-                elif arg == "-hudson":
-                    self.underHudson = True
-            elif state == "module":
-                self.module = arg
-                state = "none"
-            elif state == "target":
-                self.target = arg
-                state = "none"
-            elif state == "case":
-                self.testCase = arg
-                state = "none"
-            elif state == "directory":
-                self.searchDirectory = arg
-                state = "none"
-            elif state == "diagnostic":
-                self.diagnosticLevel = int(arg)
-                state = "none"
-            elif state == "processes":
-                self.numTestProcesses = int(arg)
-                state = "none"
-            elif state == "configFile":
-                self.configFile = arg
-                state = "none"
-            elif state == "logFile":
-                self.summaryLogFile = arg
-                state = "none"
-            else:
-                state = "none"
-        return result
+        try:
+            opts, args = getopt.gnu_getopt(sys.argv[1:], 'm:d:t:c:hbiges:f:p:l:xq',
+                ['help', 'hudson', 'target=', 'case=', 'build', 'ioc', 'gui', 'simulation', 'module='])
+        except getopt.GetoptError, err:
+            return False
+        for o, a in opts:
+            if o in ('-h', '--help'):
+                print helpText
+                return False
+            elif o in ('-d'):
+                self.diagnosticLevel = int(a)
+            elif o in ('-t', '--target'):
+                self.target = a
+            elif o in ('-c', '--case'):
+                self.testCase = a
+            elif o in ('-b', '--build'):
+                self.doBuild = True
+            elif o in ('-i', '--ioc'):
+                self.runIoc = True
+            elif o in ('-g', '--gui'):
+                self.runGui = True
+            elif o in ('-e', '--simulation'):
+                self.runEmulation = True
+            elif o in ('--hudson'):
+                self.underHudson = True
+            elif o in ('-m', '--module'):
+                self.module = a
+            elif o in ('-s'):
+                self.searchDirectory = a
+            elif o in ('-f'):
+                self.configFile = a
+            elif o in ('-p'):
+                self.numTestProcesses = int(a)
+            elif o in ('-l'):
+                self.summaryLogFile = a
+            elif o in ('-x'):
+                self.xmlResultFiles = True
+            elif o in ('-q'):
+                self.logOutput = True
+        if len(args) > 0:
+            print 'Too many arguments.'
+            return False
+        return True
         
     def resultServer(self):
         """This function contains the results server thread.  It's only

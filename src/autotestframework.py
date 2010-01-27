@@ -1260,7 +1260,7 @@ class SimulationEntity(Entity):
         self.response = []
 
     def run(self, phase, underHudson, runSim, runIoc, runGui):
-        if phase == phaseEarly and runSim:
+        if phase == phaseEarly and runSim and self.runCmd is not None:
             self.process = subprocess.Popen(self.runCmd, cwd='.', shell=True)
             Sleep(10)
 
