@@ -185,7 +185,7 @@ class RunTests(object):
             elif o in ('-c', '--case'):
                 self.testCase = a
             elif o in ('-b', '--build'):
-                self.doBuild = True
+                self.build = True
             elif o in ('-i', '--ioc'):
                 self.runIoc = True
             elif o in ('-g', '--gui'):
