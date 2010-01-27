@@ -33,6 +33,7 @@ import urllib
 import pyclbr
 import traceback
 import telnetlib
+import getopt
 
 helpText = """
 Execute an automatic test suite.  Options are:
@@ -54,12 +55,34 @@ def getClassName(object):
     className = string.split(className, "'")[0]
     return className
 
+# Phase constants
+numPhases = 5
+phaseVeryEarly = 0
+phaseEarly = 1
+phaseNormal = 2
+phaseLate = 3
+phaseVeryLate = 4
+
+def killProcessAndChildren(pid):
+    # First, kill off all the children
+    str = subprocess.Popen('ps -o pid,ppid ax', shell=True, stdout=subprocess.PIPE).communicate()[0]
+    lines = str.split('\n')[1:]
+    for line in lines:
+        pids = line.strip().split()
+        if len(pids) == 2 and int(pids[1]) == pid:
+            killProcessAndChildren(int(pids[0]))
+    # If the parent still exists, kill it too
+    str = subprocess.Popen('ps %s' % pid, shell=True, stdout=subprocess.PIPE).communicate()[0]
+    lines = str.split('\n')
+    if len(lines) > 1:
+        p = subprocess.Popen("kill -KILL %d" % pid, shell=True)
+        p.wait()
+
 ################################################
 # Epics database record
 class EpicsRecord(object):
     '''Represents an EPICS database record.'''
 
-    #########################
     def __init__(self, identifier, record, suite):
         self.identifier = identifier.strip('"')
         self.record = record
@@ -72,16 +95,13 @@ class EpicsRecord(object):
         self.rbvMonitor = None
         self.suite = suite
         
-    #########################
     def __str__(self):
         return "[%s, %s, %s]" % (self.identifier, self.record, self.fields)
         
-    #########################
     def addField(self, name, value):
         '''Adds a field to the EPICS record.  Strips double quotes from the value.'''
         self.fields[name] = value.strip('"')
 
-    #########################
     def monitorInd(self, value):
         '''Receives data from monitors placed on the record.'''
         self.suite.diagnostic("Pv %s=%s" % (value.name, value), 2)
@@ -91,7 +111,6 @@ class EpicsRecord(object):
             if len(self.values) < 32:
                 self.values.add(str(value))
     
-    #########################
     def createMonitors(self):
         '''Create monitors appropriate to the record type so
         that we can make an attempt at estimating the coverage.'''
@@ -103,7 +122,6 @@ class EpicsRecord(object):
             self.jogrMonitor = camonitor(self.identifier+".JOGR", self.monitorInd)
             self.rbvMonitor = camonitor(self.identifier+".RBV", self.monitorInd)
 
-    #########################
     def coverageReport(self):
         '''Generates a coverage report for this record.'''
         text = "    %s(%s): " % (self.identifier, self.record)
@@ -140,7 +158,6 @@ class EpicsRecord(object):
         text += "\n"
         return text
         
-    #########################
     def mbbxCoverageReport(self):
         '''Record types mbbo and mbbi.
         We expect all the values defined by the value fields to
@@ -160,7 +177,6 @@ class EpicsRecord(object):
             text += "ok"
         return text
         
-    #########################
     def mbbxDirectCoverageReport(self):
         '''Record types mbbodirect and mbbidirect.
         We expect all the values defined by the number of bits field.'''
@@ -185,7 +201,6 @@ class EpicsRecord(object):
             text += "ok"
         return text
         
-    #########################
     def bxCoverageReport(self):
         '''Record types bo and bi.
         We expect the values 0 and 1 to have occurred.'''
@@ -201,7 +216,6 @@ class EpicsRecord(object):
             text += "ok"
         return text
 
-    #########################
     def longxCoverageReport(self):
         '''Record types longin and longout.
         If the defined range covers 32 values or less, require
@@ -232,7 +246,6 @@ class EpicsRecord(object):
             text += "ok"
         return text
 
-    #########################
     def calcxCoverageReport(self):
         '''Record types calc and calcout.
         All we can really do is check that the output changed
@@ -243,7 +256,6 @@ class EpicsRecord(object):
             text = "ok"
         return text
 
-    #########################
     def axCoverageReport(self):
         '''Record types ai and ao.
         Just check that the output changed during the test.
@@ -254,7 +266,6 @@ class EpicsRecord(object):
             text = "ok"
         return text
 
-    #########################
     def motorCoverageReport(self):
         '''Record type motor.
         Just check that the output changed during the test.
@@ -265,7 +276,6 @@ class EpicsRecord(object):
             text = "ok"
         return text
 
-    #########################
     def fanoutCoverageReport(self):
         '''Record type fanout.
         I don't think there's anything we can do.
@@ -274,7 +284,6 @@ class EpicsRecord(object):
         text = "ok"
         return text
 
-    #########################
     def clearCoverage(self):
         '''Clears all stored coverage information for the record.'''
         self.values = set([])
@@ -284,35 +293,29 @@ class EpicsRecord(object):
 class EpicsDatabase(object):
     '''Represents the whole EPICS database'''
     
-    #########################
     def __init__(self, suite):
         self.records = {}
         self.suite = suite
 
-    #########################
     def __str__(self):
         result = ""
         for key, record in self.records.iteritems():
             result = result + "\n" + str(record)
         return result
 
-    #########################
     def __len__(self):
         return len(self.records)
     
-    #########################
     def createMonitors(self):
         '''Create monitors for all the records in the database.'''
         for key, record in self.records.iteritems():
             record.createMonitors()
 
-    #########################
     def clearCoverage(self):
         '''Clear the coverage information of all the records in the database.'''
         for key, record in self.records.iteritems():
             record.clearCoverage()
 
-    #########################
     def coverageReport(self):
         '''Generate a coverage report for the database'''
         text = ""
@@ -320,20 +323,17 @@ class EpicsDatabase(object):
             text += record.coverageReport()
         return text
     
-    #########################
     def addRecord(self, identifier, record):
         '''Add a record into the database.'''
         item = EpicsRecord(identifier, record, self.suite)
         self.records[identifier] = item
         return item
 
-    #########################
     def getToken(self):
         '''Returns the next token of the database text.'''
         token = self.lexer.get_token()
         return str(token)
 
-    #########################
     def readFile(self, filename):
         '''Reads and parses the database file.'''
         try:
@@ -345,7 +345,6 @@ class EpicsDatabase(object):
             self.lexer.whitespace_split = False
             self.parseDatabase()
 
-    #########################
     def parseDatabase(self):
         '''Parse the database file.'''
         token = self.getToken()
@@ -353,7 +352,6 @@ class EpicsDatabase(object):
             self.parseRecord()
             token = self.getToken()
 
-    #########################
     def parseRecord(self):
         '''Parses a database record header.'''
         token = self.getToken()
@@ -366,7 +364,6 @@ class EpicsDatabase(object):
                 if token == ")":
                     self.parseRecordBody(self.addRecord(identifier, record))
 
-    #########################
     def parseRecordBody(self, item):
         '''Parses a record body.'''
         token = self.getToken()
@@ -378,7 +375,6 @@ class EpicsDatabase(object):
             if token == "}":
                 pass
 
-    #########################
     def parseField(self, item):
         '''Parses a record field.'''
         token = self.getToken()
@@ -398,7 +394,6 @@ class TestCase(unittest.TestCase):
     cases should be derived from this class.  It provides the
     API that test cases can use during tests.'''
     
-    #########################
     def __init__(self, suite):
         # Construct the super class
         unittest.TestCase.__init__(self)
@@ -406,7 +401,6 @@ class TestCase(unittest.TestCase):
         self.suite = suite
         self.suite.addTest(self)
 
-    #########################
     def getPv(self, pv, **kargs):
         '''Gets a value from a PV.  Can only throw fail exceptions
         when the underlying caget fails, no checking of the retrieved
@@ -416,7 +410,6 @@ class TestCase(unittest.TestCase):
             self.fail("caget failed: " + str(d))
         return d
     
-    #########################
     def putPv(self, pv, value, wait=True, **kargs):
         '''Sends a value to a PV.  Can throw a fail exceptions
         when the underlying caput fails.'''
@@ -424,35 +417,29 @@ class TestCase(unittest.TestCase):
         if not rc:
             self.fail("caput failed: " + str(rc))
     
-    #########################
     def command(self, devName, text):
         '''Sends a command to a simulation device.'''
         self.suite.command(devName, text)
 
-    #########################
     def simulation(self, devName):
         '''Return simulation device.'''
         return self.suite.simulation(devName)
 
-    #########################
     def simulationDevicePresent(self, devName):
         '''Returns True if the device simulation is present.'''
         return self.suite.simulationDevicePresent(devName)
 
-    #########################
     def verify(self, left, right):
         '''Throws a fail exception if the two values are not identical.'''
         if left != right:
             self.fail("%s != %s" % (left, right))
 
-    #########################
     def verifyInRange(self, value, lower, upper):
         '''Throws a fail exception if the value does not lie within
         the specified range.'''
         if value < lower or value > upper:
             self.fail("%s not in %s..%s" % (value, lower, upper))
 
-    #########################
     def verifyPv(self, pv, value, **kargs):
         '''Reads the specified PV and checks it has the specified value.
         Throws a fail exception if the caget or the check fails.'''
@@ -461,7 +448,6 @@ class TestCase(unittest.TestCase):
             self.fail("%s[%s] != %s" % (pv, d, value))
         return d
     
-    #########################
     def verifyPvFloat(self, pv, value, delta, datatype=float, **kargs):
         '''Reads the specified PV and checks it has the specified value
         within the given error.  Usually used for checking floating point
@@ -472,7 +458,6 @@ class TestCase(unittest.TestCase):
             self.fail("%s[%s] != %s +/-%s" % (pv, d, value, delta))
         return d
     
-    #########################
     def verifyPvInRange(self, pv, lower, upper, **kargs):
         '''Reads the specified PV and checks itis within the given range.
         Throws a fail exception if the caget or the check fails.'''
@@ -481,27 +466,22 @@ class TestCase(unittest.TestCase):
             self.fail("%s[%s] not in %s..%s" % (pv, d, lower, upper))
         return d
     
-    #########################
     def recvResponse(self, devName, rsp, numArgs=-1):
         '''Try to receive a response from the simulation.'''
         return self.suite.recvResponse(devName, rsp, numArgs)
 
-    #########################
     def sleep(self, time):
         '''Sleep for the specified number of seconds.'''
         Sleep(time)
 
-    #########################
     def diagnostic(self, text, level=0):
         '''Write the text as a TAP diagnostic line.'''
         self.suite.diagnostic(text, level)
 
-    #########################
     def param(self, name):
         '''Return a parameter.'''
         return self.suite.param(name)
 
-    #########################
     def verifyIocTelnet(self, text, timeout=0.0):
         '''Verifies that the text has been received since the last
            time the receive buffer was cleared.  Will wait for up
@@ -513,7 +493,6 @@ class TestCase(unittest.TestCase):
         else:
             self.fail('Timeout waiting for %s' % repr(text))
 
-    #########################
     def writeIocTelnet(self, text):
         '''Writes the text to the IOC telnet port.'''
         if self.suite.target.iocTelnetConnection is None:
@@ -521,7 +500,6 @@ class TestCase(unittest.TestCase):
         else:
             self.suite.target.iocTelnetConnection.write(text)
 
-    #########################
     def clearIocTelnet(self):
         '''Clears the IOC telnet ports receive buffer.'''
         if self.suite.target.iocTelnetConnection is None:
@@ -529,7 +507,6 @@ class TestCase(unittest.TestCase):
         else:
             self.suite.target.iocTelnetConnection.clearReceivedText()
 
-    #########################
     def moveMotorTo(self, pv, val):
         # Send the motor to the required position.  Note that the
         # operation of the DONE flag is somewhat unreliable, it will
@@ -567,12 +544,10 @@ class TestSuite(unittest.TestSuite):
     provide a class derived from this one that defines the cases to
     run and the targets to use.'''
     
-    #########################
     def __init__(self, diagnosticLevel=9):
         # Construct the super class
         unittest.TestSuite.__init__(self)
         # Initialise
-        self.epicsDatabase = None
         self.targets = []
         self.diagnosticLevel = diagnosticLevel
         self.doBuild = False
@@ -597,92 +572,50 @@ class TestSuite(unittest.TestSuite):
             # Now run the tests
             self.runTests()
 
-    ######################################
     def processArguments(self):
         """Process the command line arguments.
         """
-        result = True
-        state = "none"
-        for arg in sys.argv:
-            if state == "none":
-                if arg == "-d":
-                    state = "diagnosticLevel"
-                elif arg == "-t":
-                    state = "target"
-                elif arg == "-c":
-                    state = "case"
-                elif arg == "-r":
-                    state = "resultServer"
-                elif arg == "-h":
-                    print helpText
-                    result = False
-                elif arg == "-b":
-                    self.doBuild = True
-                elif arg == "-i":
-                    self.runIoc = True
-                elif arg == "-g":
-                    self.runGui = True
-                elif arg == "-e":
-                    self.runSimulation = True
-                elif arg == "-x":
-                    state = "xmlFile"
-                elif arg == "-hudson":
-                    self.underHudson = True
-            elif state == "diagnosticLevel":
-                self.diagnosticLevel = int(arg)
-                state = "none"
-            elif state == "target":
-                self.onlyTarget = arg
-                state = "none"
-            elif state == "case":
-                self.onlyTestCase = arg
-                state = "none"
-            elif state == "resultServer":
-                self.serverSocketName = arg
-                state = "none"
-            elif state == "xmlFile":
-                self.xmlFileName = arg
-                state = "none"
-        return result
+        try:
+            opts, args = getopt.gnu_getopt(sys.argv[1:], 'd:t:c:r:hbigex:',
+                ['help', 'hudson', 'target=', 'case=', 'build', 'ioc', 'gui', 'simulation'])
+        except getopt.GetoptError, err:
+            return False
+        for o, a in opts:
+            if o in ('-h', '--help'):
+                return False
+            elif o in ('-d'):
+                self.diagnosticLevel = int(a)
+            elif o in ('-t', '--target'):
+                self.onlyTarget = a
+            elif o in ('-c', '--case'):
+                self.onlyTestCase = a
+            elif o in ('-r'):
+                self.serverSocketName = a
+            elif o in ('-b', '--build'):
+                self.doBuild = True
+            elif o in ('-i', '--ioc'):
+                self.runIoc = True
+            elif o in ('-g', '--gui'):
+                self.runGui = True
+            elif o in ('-e', '--simulation'):
+                self.runSimulation = True
+            elif o in ('-x'):
+                self.xmlFileName = a
+            elif o in ('--hudson'):
+                self.underHudson = True
+        if len(args) > 0:
+            print 'Too many arguments.'
+            return False
+        return True
         
-    #########################
-    def prepare(self, epicsDbFiles, iocDirectory, underHudson):
-        '''Prepare the test suite for running the test cases.'''
-        # Read the EPICS database if provided
-        self.epicsDatabase = EpicsDatabase(self)
-        for name in epicsDbFiles:
-            path = "%s/%s" % (iocDirectory, name)
-            self.epicsDatabase.readFile(path)
-        # Create the monitors for the record coverage
-        self.epicsDatabase.createMonitors()
-        Sleep(3)
-        # Initialise the coverage tracking
-        self.epicsDatabase.clearCoverage()
-
-    #########################
-    def destroy(self):
-        '''Return the test suite to its initial condition.'''
-        self.epicsDatabase = None
-
-    #########################
     def addTarget(self, target):
         '''Add a target to the test suite.'''
         self.targets.append(target)
 
-    #########################
     def reportCoverage(self):
         '''Generate the coverage reports from the test run.'''
-        # Retrieve the simulation coverage report in simulation mode
-        self.diagnostic(self.target.reportSimulationCoverage())
-        # Retrieve the coverage report for the EPICS database
-        if len(self.epicsDatabase):
-            Sleep(1)
-            self.diagnostic("==============================")
-            self.diagnostic("EPICS database coverage report:")
-            self.diagnostic(self.epicsDatabase.coverageReport())
-            self.diagnostic("==============================")
+        self.diagnostic(self.target.reportCoverage())
 
-    #########################
     def autoCreateTests(self, moduleName):
         """
         Automatically create TestCase objects from the moduleName module.
@@ -700,41 +633,34 @@ class TestSuite(unittest.TestSuite):
                 if (issubclass(classobj, TestCase)):
                     classinstance = classobj(self)
 
-    #########################
     def addTest(self, test):
         '''Add a test case to the suite.'''
         className = getClassName(test)
         if self.onlyTestCase is None or self.onlyTestCase == className:
             unittest.TestSuite.addTest(self, test)
 
-    #########################
     def command(self, devName, text):
         '''Send a command to a simulation device.'''
         self.target.command(devName, text)
         
-    #########################        
     def simulation(self, devName):
         '''Return simulation device.'''
         return self.target.simulation(devName)
 
-    #########################
     def simulationDevicePresent(self, devName):
         '''Returns True if the simulation device is present in the current target'''
         return self.target.simulationDevicePresent(devName)
 
-    #########################
     def recvResponse(self, devName, rsp, numArgs=-1):
         '''Try to receive a response from a simulation device.'''
         return self.target.recvResponse(devName, rsp, numArgs)
 
-    #########################
     def runTests(self):
         '''Runs this suite's tests.'''
         for self.target in self.targets:
             if self.onlyTarget is None or self.onlyTarget == self.target.name:
                 self.target.prepare(self.doBuild, self.runIoc, self.runGui, 
-                    self.diagnosticLevel, self.runSimulation, self.underHudson)
-                self.prepare(self.target.epicsDbFiles, self.target.iocDirectory, self.underHudson)
+                    self.diagnosticLevel, self.runSimulation, self.underHudson, self)
                 self.diagnostic("==============================")
                 self.results = TestResult(self.countTestCases(), sys.stdout, self)
                 self.run(self.results)
@@ -742,10 +668,8 @@ class TestSuite(unittest.TestSuite):
                 self.results.report()
                 self.reportCoverage()
                 self.results = None
-                self.destroy()
                 self.target.destroy()
 
-    #########################
     def diagnostic(self, text, level=0):
         '''Outputs text as a TAP diagnostic line.'''
         if self.results is not None and level <= self.diagnosticLevel:
@@ -753,12 +677,10 @@ class TestSuite(unittest.TestSuite):
             for line in lines:
                 self.results.diagnostic(line)
 
-    #########################
     def param(self, name):
         '''Return a parameter.'''
         return self.target.param(name)
 
-    #########################
     def sendToResultServer(self, text):
         if self.resultSocket is not None:
             self.resultSocket.send(text)
@@ -769,7 +691,6 @@ class TestResult(unittest.TestResult):
     '''The automatic test framework test result class.  It outputs text that
     conforms to the TAP protocol specification to a given stream.'''
     
-    #########################
     def __init__(self, numCases, stream, suite):
         unittest.TestResult.__init__(self)
         self.stream = stream
@@ -785,19 +706,16 @@ class TestResult(unittest.TestResult):
             self.xmlTop = self.xmlDoc.documentElement
         self.outputText("1..%s\n" % self.numCases)
 
-    #########################
     def getDescription(self, test):
         '''Return a description of a test.'''
         return test.shortDescription() or str(test)
 
-    #########################
     def addSuccess(self, test):
         '''Called when a test case has run successfully.'''
         self.outputText("ok %s - %s : %s\n" % (self.testsRun, getClassName(test), self.getDescription(test)))
         if self.xmlTop is not None:
             element = self.createCaseXmlElement(test)
 
-    #########################
     def createCaseXmlElement(self, test):
         # Calculate the elapsed time
         stopTime = time.time()
@@ -811,14 +729,12 @@ class TestResult(unittest.TestResult):
         element.setAttribute("time", str(timeTaken))
         return element
 
-    #########################
     def addError(self, test, err):
         '''Called when a test case fails due to an unexpected exception.'''
         self.addFailure(test, err)
         if err[0] is KeyboardInterrupt:
             self.shouldStop = 1
 
-    #########################
     def addFailure(self, test, err):
         '''Called when a test case fails.'''
         self.failures.append(self.testsRun)
@@ -839,7 +755,6 @@ class TestResult(unittest.TestResult):
             textElement = self.xmlDoc.createTextNode(text)
             errorElement.appendChild(textElement)
 
-    #########################
     def report(self):
         '''Output the suite summary in TAP Test::Harness style to stdout (not the stream)'''
         # Calculate the elapsed time
@@ -882,12 +797,10 @@ class TestResult(unittest.TestResult):
             else:
                 self.xmlDoc.writexml(wFile, indent="", addindent="  ", newl="\n")
 
-    #########################
     def diagnostic(self, text):
         '''Output the text as a TAP diagnostic line.'''
         self.outputText("# %s\n" % text)
 
-    #########################
     def outputText(self, text):
         self.stream.write(text)
         self.suite.sendToResultServer(text)
@@ -991,8 +904,11 @@ class Target(object):
     '''Instances of this class define a target that the test suite is to
     be run against.'''
     
-    #########################
-    def __init__(self, name, suite, iocDirectory="example",
+    def __init__(self, name, suite, 
+            # New API
+            entities=[],
+            # Original API
+            iocDirectory="example",
             moduleBuildCmd="make clean uninstall; make",
             iocBuildCmd="make clean uninstall; make",
             iocBootCmd=None, epicsDbFiles="", simDevices=[],
@@ -1004,197 +920,107 @@ class Target(object):
             iocCrateMonitorAddress=None, iocCrateMonitorPort=None):
         self.suite = suite
         self.name = name
-        self.iocDirectory = iocDirectory
-        self.iocBuildCmd = iocBuildCmd
-        self.moduleBuildCmd = moduleBuildCmd
-        self.iocBootCmd = iocBootCmd
-        self.targetProcess = None
-        self.epicsDbFiles = string.split(epicsDbFiles)
-        self.simDevices = {}
-        self.parameters = parameters
-        self.guiCmds = guiCmds
-        self.environment = environment
-        self.guiProcesses = []
-        self.simulationCmds = simulationCmds
-        self.simulationProcesses = []
-        self.runIocInScreenUnderHudson = runIocInScreenUnderHudson
-        self.vxWorksIoc = vxWorksIoc
-        self.iocHardwareName = iocHardwareName
-        self.iocTelnetAddress = iocTelnetAddress
-        self.iocTelnetPort = iocTelnetPort
-        self.iocTelnetLogFile = iocTelnetLogFile
-        self.iocTelnetConnection = None
-        self.iocPowerSwitch = None
-        self.iocCrateMonitor = None
-        if iocCrateMonitorAddress is not None and iocCrateMonitorPort is not None:
-            self.iocCrateMonitor = CrateMonitor(iocCrateMonitorAddress, iocCrateMonitorPort)
-        if iocPowerControlAddress is not None and iocPowerControlChan is not None:
-            self.iocPowerSwitch = PowerSwitch(iocPowerControlAddress, iocPowerControlChan)
-        for device in simDevices:
-            self.simDevices[device.name] = device
+        self.entities = entities
         self.suite.addTarget(self)
+        # Convert original API to new API
+        if len(self.entities) == 0:
+            self.entities.append(ModuleEntity('#', buildCmd=moduleBuildCmd))
+            self.entities.append(IocEntity('#', directory=iocDirectory, buildCmd=iocBuildCmd, bootCmd=iocBootCmd))
+            for g in guiCmds:
+                self.entities.append(GuiEntity('#', runCmd=g))
+            epicsDbFiles = string.split(epicsDbFiles)
+            for d in epicsDbFiles:
+                self.entities.append(EpicsDbEntity('#', directory=iocDirectory, fileName=d))
+            for d in simDevices:
+                cmd = None
+                if len(simulationCmds) > 0:
+                    cmd = simulationCmds[0]
+                    simulationCmds[0:1] = []
+                rpc = None
+                diag = None
+                if d.rpc:
+                    rpc = d.simulationPort
+                else:
+                    diag = d.simulationPort
+                self.entities.append(SimulationEntity(d.name, runCmd=cmd, rpcPort=rpc, diagPort=diag))
+            for c in simulationCmds:
+                self.entities.append(SimulationEntity('#', runCmd=c))
+            for e in environment:
+                self.entities.append(EnvironmentEntity(e[0], value=e[1]))
+            for name,value in parameters.iteritems():
+                self.entities.append(ParameterEntity(name, value))
 
-    #########################
     def __del__(self):
         self.destroy()
 
-    #########################
-    def prepare(self, doBuild, runIoc, runGui, diagnosticLevel, runSim, underHudson):
+    def prepare(self, doBuild, runIoc, runGui, diagnosticLevel, runSim, underHudson, suite):
         '''Prepares the target for execution of the test suite.'''
-        for var in self.environment:
-            os.environ[var[0]] = var[1]
-        if doBuild and self.moduleBuildCmd is not None:
-            p = subprocess.Popen(self.moduleBuildCmd, cwd='.', shell=True)
-            p.wait()
-        if doBuild and self.iocBuildCmd is not None:
-            p = subprocess.Popen(self.iocBuildCmd, cwd=self.iocDirectory, shell=True)
-            p.wait()
-        if runSim:
-            for simulationCmd in self.simulationCmds:
-                p = subprocess.Popen(simulationCmd, cwd='.', shell=True)
-                self.simulationProcesses.append(p)
-                Sleep(10)
-        if runIoc and self.iocBootCmd is not None:
-            if self.vxWorksIoc:
-                self.prepareRedirector()
-                self.iocTelnetConnection = TelnetConnection(self.iocTelnetAddress,
-                    self.iocTelnetPort, self.iocTelnetLogFile)
-                print 'Resetting IOC'
-                if self.iocPowerSwitch is not None:
-                    self.iocPowerSwitch.reset()
-                elif self.iocCrateMonitor is not None:
-                    self.iocCrateMonitor.reset()
-                else:
-                    Sleep(1)
-                    self.iocTelnetConnection.write('\r')
-                    Sleep(1)
-                    self.iocTelnetConnection.write('reboot')
-                print 'Waiting for auto-boot message'
-                ok = self.iocTelnetConnection.waitFor('Press any key to stop auto-boot', 60)
-                print "    ok=%s" % ok
-                print 'Waiting for script loaded message'
-                ok = self.iocTelnetConnection.waitFor('Done executing startup script', 120)
-                print "    ok=%s" % ok
-            else:  # Linux soft IOC
-                bootCmd = self.iocBootCmd
-                if self.runIocInScreenUnderHudson and underHudson:
-                    bootCmd = "screen -D -m -L " + bootCmd
-                self.targetProcess = subprocess.Popen(bootCmd,
-                    cwd=self.iocDirectory, shell=True)
-                Sleep(10)
-        for name, device in self.simDevices.iteritems():
-            device.prepare(diagnosticLevel, self.suite, underHudson)
-        if runGui:
-            for guiCmd in self.guiCmds:
-                p = subprocess.Popen(guiCmd, cwd='.', shell=True)
-                self.guiProcesses.append(p)
-            Sleep(10)
+        if doBuild:
+            for phase in range(numPhases):
+                for e in self.entities:
+                    e.build(phase)
+        for phase in range(numPhases):
+            for e in self.entities:
+                e.run(phase, underHudson, runSim, runIoc, runGui)
+        for phase in range(numPhases):
+            for e in self.entities:
+                e.prepare(phase, diagnosticLevel, suite)
 
-    #########################
-    def prepareRedirector(self):
-        '''Programs the redirector to load the IOC executable.'''
-        # The path of the executable
-        iocPath = '%s/%s/%s' % (os.getcwd(), self.iocDirectory, self.iocBootCmd)
-        print '@A:%s' % repr(iocPath)
-        # Is the redirector already correct?
-        str = subprocess.Popen('configure-ioc show %s' % self.iocHardwareName, 
-            shell=True, stdout=subprocess.PIPE).communicate()[0]
-        pathNow = str.strip().split()[1]
-        print '@1:%s' % repr(pathNow)
-        if pathNow != iocPath:
-            # No, so set it
-            str = subprocess.Popen('configure-ioc edit %s %s' % (self.iocHardwareName, iocPath),
-                shell=True, stdout=subprocess.PIPE).communicate()[0]
-            print '@2:%s' % repr(str)
-            # Wait for the redirector to report the correct path
-            str = subprocess.Popen('configure-ioc show %s' % self.iocHardwareName, 
-                shell=True, stdout=subprocess.PIPE).communicate()[0]
-            pathNow = str.strip().split()[1]
-            print '@3:%s' % repr(pathNow)
-            timeout = 100
-            while pathNow != iocPath and timeout > 0:
-                Sleep(2)
-                timeout -= 2
-                str = subprocess.Popen('configure-ioc show %s' % self.iocHardwareName, 
-                    shell=True, stdout=subprocess.PIPE).communicate()[0]
-                pathNow = str.strip().split()[1]
-                print '@4:%s' % repr(pathNow)
-        return pathNow == iocPath
-            
-    #########################
     def destroy(self):
         '''Returns the target to it's initial state.'''
-        if self.targetProcess is not None:
-            self.killProcessAndChildren(self.targetProcess.pid)
-            self.targetProcess = None
-            p = subprocess.Popen("stty sane", shell=True)
-            p.wait()
-        if self.iocTelnetConnection is not None:
-            self.iocTelnetConnection.close()
-            self.iocTelnetConnection = None
-        for simulationProcess in self.simulationProcesses:
-            self.killProcessAndChildren(simulationProcess.pid)
-        self.simulationProcesses = []
-        for guiProcess in self.guiProcesses:
-            self.killProcessAndChildren(guiProcess.pid)
-        self.guiProcesses = []
+        for phase in range(numPhases):
+            for e in self.entities:
+                e.destroy(phase)
 
-    #########################
-    def killProcessAndChildren(self, pid):
-        # First, kill off all the children
-        str = subprocess.Popen('ps -o pid,ppid ax', shell=True, stdout=subprocess.PIPE).communicate()[0]
-        lines = str.split('\n')[1:]
-        for line in lines:
-            pids = line.strip().split()
-            if len(pids) == 2 and int(pids[1]) == pid:
-                self.killProcessAndChildren(int(pids[0]))
-        # If the parent still exists, kill it too
-        str = subprocess.Popen('ps %s' % pid, shell=True, stdout=subprocess.PIPE).communicate()[0]
-        lines = str.split('\n')
-        if len(lines) > 1:
-            p = subprocess.Popen("kill -KILL %d" % pid, shell=True)
-            p.wait()
-
-    #########################
-    def reportSimulationCoverage(self):
-        '''Returns the coverage reports for any simulation devices of the target.'''
+    def reportCoverage(self):
+        '''Returns the coverage reports.'''
         result = ""
-        for name, device in self.simDevices.iteritems():
-            result += device.reportCoverage()
+        for e in self.entities:
+            result += e.reportCoverage()
         return result
 
-    #########################
+    def getEntity(self, name):
+        '''Returns the first entity with the given name'''
+        result = None
+        for e in self.entities:
+            if e.name == name:
+                result = e
+                break
+        return result
+
     def command(self, devName, text):
         '''Send a command to a simulation device.'''
-        if devName in self.simDevices:
-            self.simDevices[devName].command(text)
+        e = self.getEntity(devName)
+        if e is not None:
+            e.command(text)
 
-    #########################
     def simulation(self, devName):
-        '''Return simulation device.'''
-        if devName in self.simDevices:
-            return self.simDevices[devName].simulation()
-
-    #########################
-    def simulationDevicePresent(self, devName):
-        '''Returns True if the simulation device is present in the current target'''
-        result = False
-        if devName in self.simDevices:
-            result = self.simDevices[devName].devicePresent()
+        '''Return simulation device for use with RPC calls.'''
+        result = None
+        e = self.getEntity(devName)
+        if e is not None:
+            result = e.rpcObject()
         return result
 
-    #########################
+    def simulationDevicePresent(self, devName):
+        '''Returns True if the simulation device is present in the current target'''
+        return self.getEntity(devName) is not None
+
     def recvResponse(self, devName, rsp, numArgs):
         '''Try to receive a response from a simulation device.'''
         result = None
-        if devName in self.simDevices:
-            result = self.simDevices[devName].recvResponse(rsp, numArgs)
+        e = self.getEntity(devName)
+        if e is not None:
+            result = e.recvResponse(rsp, numArgs)
         return result
 
-    #########################
     def param(self, name):
         '''Return a parameter.'''
-        return self.parameters[name]
+        result = None
+        e = self.getEntity(name)
+        if e is not None:
+            result = e.value
+        return result
 
 ################################################
 # Simulation device definition class
@@ -1202,7 +1028,6 @@ class SimDevice(object):
     '''Instances of this class define the simulation devices available
     with a target.'''
     
-    #########################
     def __init__(self, name, simulationPort, pythonShell=True, rpc = False):
         # Initialise
         self.sim = None
@@ -1212,63 +1037,262 @@ class SimDevice(object):
         self.suite = None
         self.pythonShell = pythonShell
 
-    #########################
-    def devicePresent(self):
-        '''Returns true if the simulation device is present'''
-        return self.sim is not None
+################################################
+# Entity base class
+class Entity(object):
+    '''The base class for all entities.'''
 
-    #########################
-    def prepare(self, diagnosticLevel, suite, underHudson):
-        '''Prepare the simulation device for running the test cases.'''
-        self.suite = suite
-        try:
-            if self.rpc:
-                import rpyc
-                self.conn = rpyc.classic.connect("localhost", port=self.simulationPort)
-                self.sim = self.conn.root.simulation()
-            else:
-                self.sim = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                self.sim.connect(("localhost", self.simulationPort))
-                self.sim.settimeout(0.1)
-                self.swallowInput()
-        except Exception, e:
-            self.sim = None
-            traceback.print_exc()
-        # Initialise response processor
-        self.response = []
-        if not self.rpc:
-            # Initialise the coverage tracking        
-            self.command("covclear")
-            # Initialise the diagnostic level
-            self.command("diaglevel %s" % diagnosticLevel)
-        else:
-            # Initialise the coverage tracking                
-            self.sim.clearCoverage()
-            # Initialise the diagnostic level            
-            self.sim.diaglevel = diagnosticLevel            
+    def __init__(self, name):
+        self.name = name
 
-    #########################
-    def destroy(self):
-        '''Return the simulation device to its initial condition.'''
-        if self.sim is not None:
-            self.sim.close()
-        self.sim = None
+    def build(self, phase):
+        pass
 
-    #########################
+    def run(self, phase, underHudson, runSim, runIoc, runGui):
+        pass
+
+    def destroy(self, phase):
+        pass
+
     def reportCoverage(self):
-        '''Return the coverage reports for the simulation device.'''
+        return ''
+
+    def prepare(self, phase, diagnosticLevel, suite):
+        pass
+
+    def rpcObject(self):
+        return None
+
+################################################
+# IOC Entity definition class
+class IocEntity(Entity):
+    '''Instances of this class define IOCs.'''
+
+    def __init__(self, name,
+            buildCmd='make clean uninstall; make',
+            buildPhase=phaseLate,
+            directory=None,
+            bootCmd=None,
+            runInScreenUnderHudson=True,
+            vxWorks=False,
+            telnetAddress=None,
+            telnetPort=None,
+            telnetLogFile=None,
+            crateMonitorAddress=None,
+            crateMonitorPort=None,
+            powerControlAddress=None,
+            powerControlChan=None):
+        Entity.__init__(self, name)
+        self.buildCmd = buildCmd
+        self.buildPhase = buildPhase
+        self.directory = directory
+        self.bootCmd = bootCmd
+        self.runInScreenUnderHudson = runInScreenUnderHudson
+        self.vxWorks = vxWorks
+        self.telnetAddress = telnetAddress
+        self.telnetPort = telnetPort
+        self.telnetLogFile = telnetLogFile
+        self.telnetConnection = None
+        self.crateMonitor = None
+        self.powerSwitch = None
+        if crateMonitorAddress is not None and crateMonitorPort is not None:
+            self.crateMonitor = CrateMonitor(crateMonitorAddress, crateMonitorPort)
+        if powerControlAddress is not None and powerControlChan is not None:
+            self.powerSwitch = PowerSwitch(powerControlAddress, powerControlChan)
+        self.process = None
+
+    def build(self, buildPhase):
+        if self.buildCmd is not None and buildPhase == self.buildPhase:
+            p = subprocess.Popen(self.buildCmd, cwd=self.directory, shell=True)
+            p.wait()
+
+    def run(self, phase, underHudson, runSim, runIoc, runGui):
+        if phase == phaseNormal and runIoc:
+            if self.vxWorks:
+                # vxWorks IOC
+                self.prepareRedirector()
+                self.telnetConnection = TelnetConnection(self.telnetAddress,
+                        self.telnetPort, self.telnetLogFile)
+                print 'Resetting IOC'
+                if self.powerSwitch is not None:
+                    self.powerSwitch.reset()
+                elif self.crateMonitor is not None:
+                    self.crateMonitor.reset()
+                else:
+                    Sleep(1)
+                    self.telnetConnection.write('\r')
+                    Sleep(1)
+                    self.telnetConnection.write('reboot')
+                print 'Waiting for auto-boot message'
+                ok = self.telnetConnection.waitFor('Press any key to stop auto-boot', 60)
+                print "    ok=%s" % ok
+                print 'Waiting for script loaded message'
+                ok = self.telnetConnection.waitFor('Done executing startup script', 120)
+                print "    ok=%s" % ok
+            else:  
+                # Linux soft IOC
+                bootCmd = self.bootCmd
+                if self.runInScreenUnderHudson and underHudson:
+                    bootCmd = "screen -D -m -L " + bootCmd
+                self.process = subprocess.Popen(bootCmd,
+                    cwd=self.directory, shell=True)
+                Sleep(10)
+
+    def destroy(self, phase):
+        if self.process is not None and phase == phaseLate:
+            killProcessAndChildren(self.process.pid)
+            self.process = None
+            p = subprocess.Popen("stty sane", shell=True)
+            p.wait()
+
+    def prepareRedirector(self):
+        '''Programs the redirector to load the IOC executable.'''
+        # The path of the executable
+        iocPath = '%s/%s/%s' % (os.getcwd(), self.directory, self.bootCmd)
+        print '@A:%s' % repr(iocPath)
+        # Is the redirector already correct?
+        str = subprocess.Popen('configure-ioc show %s' % self.name, 
+            shell=True, stdout=subprocess.PIPE).communicate()[0]
+        pathNow = str.strip().split()[1]
+        print '@1:%s' % repr(pathNow)
+        if pathNow != iocPath:
+            # No, so set it
+            str = subprocess.Popen('configure-ioc edit %s %s' % (self.name, iocPath),
+                shell=True, stdout=subprocess.PIPE).communicate()[0]
+            print '@2:%s' % repr(str)
+            # Wait for the redirector to report the correct path
+            str = subprocess.Popen('configure-ioc show %s' % self.name, 
+                shell=True, stdout=subprocess.PIPE).communicate()[0]
+            pathNow = str.strip().split()[1]
+            print '@3:%s' % repr(pathNow)
+            timeout = 100
+            while pathNow != iocPath and timeout > 0:
+                Sleep(2)
+                timeout -= 2
+                str = subprocess.Popen('configure-ioc show %s' % self.name, 
+                    shell=True, stdout=subprocess.PIPE).communicate()[0]
+                pathNow = str.strip().split()[1]
+                print '@4:%s' % repr(pathNow)
+        return pathNow == iocPath
+
+################################################
+# Epics Database Entity definition class
+class EpicsDbEntity(Entity):
+    '''Instances of this class define EPICS databases that are to be monitored.'''
+
+    def __init__(self, name,
+            directory=None,
+            fileName=None):
+        Entity.__init__(self, name)
+        self.directory = directory
+        self.fileName = fileName
+        self.suite = None
+        self.database = None
+
+    def prepare(self, phase, diagnosticLevel, suite):
+        self.suite = suite
+        if phase == phaseNormal:
+            # Work out the file name
+            dbFileName = None
+            if self.fileName is not None:
+                if self.directory is None:
+                    dbFileName = self.fileName
+                else:
+                    dbFileName = '%s/%s' % (self.directory, self.fileName)
+            # Read the EPICS database
+            self.database = EpicsDatabase(suite)
+            if dbFileName is not None:
+                self.database.readFile(dbFileName)
+            # Create the monitors for the record coverage
+            self.database.createMonitors()
+            Sleep(3)
+            # Initialise the coverage tracking
+            self.database.clearCoverage()
+
+    def reportCoverage(self):
         result = ""
-        if self.sim is not None:
+        report = self.database.coverageReport()
+        if report is not None:
+            result = "==============================\n"
+            result += "EPICS database %s coverage report:\n" % self.name
+            result += report
+        return result
+
+################################################
+# Module Entity definition class
+class ModuleEntity(Entity):
+    '''Instances of this class define modules that are to be built.'''
+
+    def __init__(self, name,
+            buildCmd='make clean uninstall; make',
+            buildPhase=phaseEarly,
+            directory=None):
+        Entity.__init__(self, name)
+        self.directory = directory
+        self.buildCmd = buildCmd
+        self.buildPhase = buildPhase
+
+    def build(self, buildPhase):
+        if self.buildCmd is not None and buildPhase == self.buildPhase:
+            p = subprocess.Popen(self.buildCmd, cwd='.', shell=True)
+            p.wait()
+
+################################################
+# Simulation Entity definition class
+class SimulationEntity(Entity):
+    '''Instances of this class define simulations that the suite uses.'''
+
+    def __init__(self, name,
+            rpcPort=None,
+            diagPort=None,
+            runCmd=None,
+            pythonShell=True):
+        Entity.__init__(self, name)
+        self.rpcPort = rpcPort
+        self.diagPort = diagPort
+        self.runCmd = runCmd
+        self.pythonShell = pythonShell
+        self.process = None
+        self.rpcConnection = None
+        self.rpcSimulation = None
+        self.diagSimulation = None
+        self.suite = None
+        self.response = []
+
+    def run(self, phase, underHudson, runSim, runIoc, runGui):
+        if phase == phaseEarly and runSim:
+            self.process = subprocess.Popen(self.runCmd, cwd='.', shell=True)
+            Sleep(10)
+
+    def destroy(self, phase):
+        if self.rpcSimulation is not None and phase == phaseEarly:
+            self.rpcConnection.close()
+            self.rpcSimulation = None
+        if self.diagSimulation is not None and phase == phaseEarly:
+            self.diagSimulation.close()
+            self.diagSimulation = None
+        if self.process is not None and phase == phaseLate:
+            killProcessAndChildren(self.process.pid)
+            self.process = None
+
+    def rpcObject(self):
+        return self.rpcSimulation
+
+    def reportCoverage(self):
+        result = ""
+        branches = None
+        coverage = None
+        if self.rpcSimulation is not None:
+            branches = self.rpcSimulation.branches
+            coverage = self.rpcSimulation.coverage
+        elif self.diagSimulation is not None:
+            self.command("covbranches")
+            branches = self.recvResponse("covbranches")
+            self.command("coverage")
+            coverage = self.recvResponse("coverage")
+        if branches is not None or coverage is not None:
             result += "==============================\n"
             result += "Sim device %s coverage report:\n" % self.name
-            if self.rpc:                        
-                branches = self.sim.branches
-                coverage = self.sim.coverage
-            else:
-                self.command("covbranches")
-                branches = self.recvResponse("covbranches")
-                self.command("coverage")
-                coverage = self.recvResponse("coverage")
             if coverage is None:
                 coverage = set()
             else:
@@ -1284,35 +1308,57 @@ class SimDevice(object):
                 result += "    %s: ok but not declared\n" % item
         return result
 
-    #########################
+    def prepare(self, phase, diagnosticLevel, suite):
+        self.suite = suite
+        if phase == phaseEarly:
+            # Connect to the back door if required
+            if self.rpcPort is not None:
+                try:
+                    import rpyc
+                    self.rpcConnection = rpyc.classic.connect("localhost", port=self.rpcPort)
+                    self.rpcSimulation = self.rpcConnection.root.simulation()
+                    # Initialise the coverage tracking
+                    self.rpcSimulation.clearCoverage()
+                    # Initialise the diagnostic level
+                    self.rpcSimulation.diaglevel = diagnosticLevel
+                except Exception, e:
+                    self.rpcSimulation = None
+                    traceback.print_exc()
+            elif self.diagPort is not None:
+                try:
+                    self.diagSimulation = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    self.diagSimulation.connect(("localhost", self.diagPort))
+                    self.diagSimulation.settimeout(0.1)
+                    self.response = []
+                    self.swallowInput()
+                    # Initialise the coverage tracking
+                    self.command("covclear")
+                    # Initialise the diagnostic level
+                    self.command("diaglevel %s" % diagnosticLevel)
+                except Exception, e:
+                    self.diagSimulation = None
+                    traceback.print_exc()
+
     def command(self, text):
-        '''Send a command to the simulation.'''
-        if self.sim is not None:
-            assert not self.rpc, "command interface not supported over rpc, use simulation() and call the function directly"
+        '''Send a command to the simulation through the diagnostic socket.'''
+        if self.diagSimulation is not None:
             self.suite.diagnostic("Command[%s]: %s" % (self.name, text), 2)
             if self.pythonShell:
-                self.sim.sendall('self.command(%s)\n' % repr(text))
+                self.diagSimulation.sendall('self.command(%s)\n' % repr(text))
             else:
-                self.sim.sendall('%s\n' % text)
+                self.diagSimulation.sendall('%s\n' % text)
 
-    #########################
-    def simulation(self):
-        '''Get the simulation object using RPC'''
-        if self.rpc and self.sim is not None:    
-            return self.sim        
-
-    #########################
     def recvResponse(self, rsp, numArgs=-1):
         '''Try to receive a response from the simulation.'''
         result = None
-        if self.sim is not None:
+        if self.diagSimulation is not None:
             # Get text tokens from the simulation
             try:
-                text = self.sim.recv(1024)
+                text = self.diagSimulation.recv(1024)
                 while text:
                     tokens = text.split()
                     self.response = self.response + tokens
-                    text = self.sim.recv(1024)
+                    text = self.diagSimulation.recv(1024)
             except socket.timeout:
                 pass
             # Now find the line starting with the desired arg
@@ -1344,16 +1390,61 @@ class SimDevice(object):
         self.suite.diagnostic("Response[%s]: %s" % (self.name, result), 2)
         return result
 
-    #########################
     def swallowInput(self):
         '''Clears text from the socket connecting to the simulation.'''
-        if self.sim is not None:
+        if self.diagSimulation is not None:
             try:
-                while self.sim.recv(1024):
+                while self.diagSimulation.recv(1024):
                     pass
             except socket.timeout:
                 pass
 
+################################################
+# GUI Entity definition class
+class GuiEntity(Entity):
+    '''Instances of this class define GUIs that are run by the framework.'''
+
+    def __init__(self, name,
+            runCmd=None,
+            directory='.'):
+        Entity.__init__(self, name)
+        self.runCmd = runCmd
+        self.directory = directory
+        self.process = None
+
+    def run(self, phase, underHudson, runSim, runIoc, runGui):
+        if self.runCmd is not None and runGui and phase == phaseLate:
+            self.process = subprocess.Popen(self.runCmd, cwd=self.directory, shell=True)
+            Sleep(10)
+
+    def destroy(self, phase):
+        if self.process is not None and phase == phaseNormal:
+            killProcessAndChildren(self.process.pid)
+            self.process = None
+
+################################################
+# Environment variable definition class
+class EnvironmentEntity(Entity):
+    '''Instances of this class define environment variables.'''
+
+    def __init__(self, name,
+            value=''):
+        Entity.__init__(self, name)
+        self.value = value
+
+    def run(self, phase, underHudson, runSim, runIoc, runGui):
+        if phase == phaseVeryEarly:
+            os.environ[self.name] = self.value
+
+################################################
+# Parameter definition class
+class ParameterEntity(Entity):
+    '''Instances of this class define parameters.'''
+
+    def __init__(self, name,
+            value=''):
+        Entity.__init__(self, name)
+        self.value = value
 
 ###########################
 def main():
