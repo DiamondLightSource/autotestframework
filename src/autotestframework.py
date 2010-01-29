@@ -44,7 +44,7 @@ Execute an automatic test suite.  Options are:
 -x <file>     Creates a JUNIT compatible XML results file
 -g            Runs the GUI
 -t <target>   Tests only on specified <target>
--hudson       The test suite is running under Hudson
+--hudson      The test suite is running under Hudson
 -c <case>     Execute only this case
 """
 
@@ -400,6 +400,13 @@ class TestCase(unittest.TestCase):
         # Initialise things
         self.suite = suite
         self.suite.addTest(self)
+        self.throwFail = True
+
+    def fail(message):
+        if self.throwFail:
+            unittest.TestCase.fail(self, message)
+        else:
+            self.diagnostic('FAIL: %s' % message, 1)
 
     def getPv(self, pv, **kargs):
         '''Gets a value from a PV.  Can only throw fail exceptions
@@ -961,7 +968,7 @@ class Target(object):
                     e.build(phase)
         for phase in range(numPhases):
             for e in self.entities:
-                e.run(phase, underHudson, runSim, runIoc, runGui)
+                e.run(phase, underHudson, runSim, runIoc, runGui, suite)
         for phase in range(numPhases):
             for e in self.entities:
                 e.prepare(phase, diagnosticLevel, suite)
@@ -1048,7 +1055,7 @@ class Entity(object):
     def build(self, phase):
         pass
 
-    def run(self, phase, underHudson, runSim, runIoc, runGui):
+    def run(self, phase, underHudson, runSim, runIoc, runGui, suite):
         pass
 
     def destroy(self, phase):
@@ -1106,7 +1113,7 @@ class IocEntity(Entity):
             p = subprocess.Popen(self.buildCmd, cwd=self.directory, shell=True)
             p.wait()
 
-    def run(self, phase, underHudson, runSim, runIoc, runGui):
+    def run(self, phase, underHudson, runSim, runIoc, runGui, suite):
         if phase == phaseNormal and runIoc:
             if self.vxWorks:
                 # vxWorks IOC
@@ -1189,9 +1196,9 @@ class EpicsDbEntity(Entity):
         self.suite = None
         self.database = None
 
-    def prepare(self, phase, diagnosticLevel, suite):
+    def run(self, phase, underHudson, runSim, runIoc, runGui, suite):
         self.suite = suite
-        if phase == phaseNormal:
+        if phase == phaseEarly:
             # Work out the file name
             dbFileName = None
             if self.fileName is not None:
@@ -1259,7 +1266,7 @@ class SimulationEntity(Entity):
         self.suite = None
         self.response = []
 
-    def run(self, phase, underHudson, runSim, runIoc, runGui):
+    def run(self, phase, underHudson, runSim, runIoc, runGui, suite):
         if phase == phaseEarly and runSim and self.runCmd is not None:
             self.process = subprocess.Popen(self.runCmd, cwd='.', shell=True)
             Sleep(10)
@@ -1412,7 +1419,7 @@ class GuiEntity(Entity):
         self.directory = directory
         self.process = None
 
-    def run(self, phase, underHudson, runSim, runIoc, runGui):
+    def run(self, phase, underHudson, runSim, runIoc, runGui, suite):
         if self.runCmd is not None and runGui and phase == phaseLate:
             self.process = subprocess.Popen(self.runCmd, cwd=self.directory, shell=True)
             Sleep(10)
@@ -1432,7 +1439,7 @@ class EnvironmentEntity(Entity):
         Entity.__init__(self, name)
         self.value = value
 
-    def run(self, phase, underHudson, runSim, runIoc, runGui):
+    def run(self, phase, underHudson, runSim, runIoc, runGui, suite):
         if phase == phaseVeryEarly:
             os.environ[self.name] = self.value
 
