@@ -402,7 +402,7 @@ class TestCase(unittest.TestCase):
         self.suite.addTest(self)
         self.throwFail = True
 
-    def fail(message):
+    def fail(self, message):
         if self.throwFail:
             unittest.TestCase.fail(self, message)
         else:
@@ -431,6 +431,10 @@ class TestCase(unittest.TestCase):
     def simulation(self, devName):
         '''Return simulation device.'''
         return self.suite.simulation(devName)
+
+    def ioc(self, iocName):
+        '''Return an IOC object.'''
+        return self.suite.ioc(iocName)
 
     def simulationDevicePresent(self, devName):
         '''Returns True if the device simulation is present.'''
@@ -653,6 +657,10 @@ class TestSuite(unittest.TestSuite):
     def simulation(self, devName):
         '''Return simulation device.'''
         return self.target.simulation(devName)
+
+    def ioc(self, iocName):
+        '''Return an IOC object.'''
+        return self.target.ioc(iocName)
 
     def simulationDevicePresent(self, devName):
         '''Returns True if the simulation device is present in the current target'''
@@ -1009,6 +1017,14 @@ class Target(object):
             result = e.rpcObject()
         return result
 
+    def ioc(self, iocName):
+        '''Return the IOC.'''
+        result = None
+        e = self.getEntity(iocName)
+        if e is not None:
+            result = e.rpcObject()
+        return result
+
     def simulationDevicePresent(self, devName):
         '''Returns True if the simulation device is present in the current target'''
         return self.getEntity(devName) is not None
@@ -1088,7 +1104,8 @@ class IocEntity(Entity):
             crateMonitorAddress=None,
             crateMonitorPort=None,
             powerControlAddress=None,
-            powerControlChan=None):
+            powerControlChan=None,
+            automaticRun=True):
         Entity.__init__(self, name)
         self.buildCmd = buildCmd
         self.buildPhase = buildPhase
@@ -1099,6 +1116,7 @@ class IocEntity(Entity):
         self.telnetAddress = telnetAddress
         self.telnetPort = telnetPort
         self.telnetLogFile = telnetLogFile
+        self.automaticRun = automaticRun
         self.telnetConnection = None
         self.crateMonitor = None
         self.powerSwitch = None
@@ -1114,43 +1132,50 @@ class IocEntity(Entity):
             p.wait()
 
     def run(self, phase, underHudson, runSim, runIoc, runGui, suite):
-        if phase == phaseNormal and runIoc:
-            if self.vxWorks:
-                # vxWorks IOC
-                self.prepareRedirector()
-                self.telnetConnection = TelnetConnection(self.telnetAddress,
-                        self.telnetPort, self.telnetLogFile)
-                print 'Resetting IOC'
-                if self.powerSwitch is not None:
-                    self.powerSwitch.reset()
-                elif self.crateMonitor is not None:
-                    self.crateMonitor.reset()
-                else:
-                    Sleep(1)
-                    self.telnetConnection.write('\r')
-                    Sleep(1)
-                    self.telnetConnection.write('reboot')
-                print 'Waiting for auto-boot message'
-                ok = self.telnetConnection.waitFor('Press any key to stop auto-boot', 60)
-                print "    ok=%s" % ok
-                print 'Waiting for script loaded message'
-                ok = self.telnetConnection.waitFor('Done executing startup script', 120)
-                print "    ok=%s" % ok
-            else:  
-                # Linux soft IOC
-                bootCmd = self.bootCmd
-                if self.runInScreenUnderHudson and underHudson:
-                    bootCmd = "screen -D -m -L " + bootCmd
-                self.process = subprocess.Popen(bootCmd,
-                    cwd=self.directory, shell=True)
-                Sleep(10)
+        self.underHudson = underHudson
+        if phase == phaseNormal and runIoc and self.automaticRun:
+            self.start()
+
+    def start(self):
+        if self.vxWorks:
+            # vxWorks IOC
+            self.prepareRedirector()
+            self.telnetConnection = TelnetConnection(self.telnetAddress,
+                    self.telnetPort, self.telnetLogFile)
+            print 'Resetting IOC'
+            if self.powerSwitch is not None:
+                self.powerSwitch.reset()
+            elif self.crateMonitor is not None:
+                self.crateMonitor.reset()
+            else:
+                Sleep(1)
+                self.telnetConnection.write('\r')
+                Sleep(1)
+                self.telnetConnection.write('reboot')
+            print 'Waiting for auto-boot message'
+            ok = self.telnetConnection.waitFor('Press any key to stop auto-boot', 60)
+            print "    ok=%s" % ok
+            print 'Waiting for script loaded message'
+            ok = self.telnetConnection.waitFor('Done executing startup script', 120)
+            print "    ok=%s" % ok
+        else:  
+            # Linux soft IOC
+            bootCmd = self.bootCmd
+            if self.runInScreenUnderHudson and self.underHudson:
+                bootCmd = "screen -D -m -L " + bootCmd
+            self.process = subprocess.Popen(bootCmd,
+                cwd=self.directory, shell=True)
+            Sleep(10)
 
     def destroy(self, phase):
         if self.process is not None and phase == phaseLate:
-            killProcessAndChildren(self.process.pid)
-            self.process = None
-            p = subprocess.Popen("stty sane", shell=True)
-            p.wait()
+            self.stop()
+
+    def stop(self):
+        killProcessAndChildren(self.process.pid)
+        self.process = None
+        p = subprocess.Popen("stty sane", shell=True)
+        p.wait()
 
     def prepareRedirector(self):
         '''Programs the redirector to load the IOC executable.'''
@@ -1267,9 +1292,10 @@ class SimulationEntity(Entity):
         self.response = []
 
     def run(self, phase, underHudson, runSim, runIoc, runGui, suite):
-        if phase == phaseEarly and runSim and self.runCmd is not None:
-            self.process = subprocess.Popen(self.runCmd, cwd='.', shell=True)
-            Sleep(10)
+        if phase == phaseEarly:
+            if runSim and self.runCmd is not None:
+                self.process = subprocess.Popen(self.runCmd, cwd='.', shell=True)
+                Sleep(10)
 
     def destroy(self, phase):
         if self.rpcSimulation is not None and phase == phaseEarly:
