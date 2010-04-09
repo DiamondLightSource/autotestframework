@@ -1258,7 +1258,7 @@ class ModuleEntity(Entity):
     def __init__(self, name,
             buildCmd='make clean uninstall; make',
             buildPhase=phaseEarly,
-            directory=None):
+            directory='.'):
         Entity.__init__(self, name)
         self.directory = directory
         self.buildCmd = buildCmd
@@ -1266,7 +1266,7 @@ class ModuleEntity(Entity):
 
     def build(self, buildPhase):
         if self.buildCmd is not None and buildPhase == self.buildPhase:
-            p = subprocess.Popen(self.buildCmd, cwd='.', shell=True)
+            p = subprocess.Popen(self.buildCmd, cwd=self.directory, shell=True)
             p.wait()
 
 ################################################
