@@ -1251,8 +1251,8 @@ class EpicsDbEntity(Entity):
         return result
 
 ################################################
-# Module Entity definition class
-class ModuleEntity(Entity):
+# Build Entity definition class
+class BuildEntity(Entity):
     '''Instances of this class define modules that are to be built.'''
 
     def __init__(self, name,
@@ -1268,6 +1268,9 @@ class ModuleEntity(Entity):
         if self.buildCmd is not None and buildPhase == self.buildPhase:
             p = subprocess.Popen(self.buildCmd, cwd=self.directory, shell=True)
             p.wait()
+# For backwards compatibility, define an alias for BuildEntity
+class ModuleEntity(BuildEntity):
+    pass
 
 ################################################
 # Simulation Entity definition class
@@ -1278,12 +1281,14 @@ class SimulationEntity(Entity):
             rpcPort=None,
             diagPort=None,
             runCmd=None,
-            pythonShell=True):
+            pythonShell=True,
+            directory='.'):
         Entity.__init__(self, name)
         self.rpcPort = rpcPort
         self.diagPort = diagPort
         self.runCmd = runCmd
         self.pythonShell = pythonShell
+        self.directory = directory
         self.process = None
         self.rpcConnection = None
         self.rpcSimulation = None
@@ -1294,7 +1299,7 @@ class SimulationEntity(Entity):
     def run(self, phase, underHudson, runSim, runIoc, runGui, suite):
         if phase == phaseEarly:
             if runSim and self.runCmd is not None:
-                self.process = subprocess.Popen(self.runCmd, cwd='.', shell=True)
+                self.process = subprocess.Popen(self.runCmd, cwd=self.directory, shell=True)
                 Sleep(10)
 
     def destroy(self, phase):
