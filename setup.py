@@ -1,26 +1,18 @@
-# setup.py file for building autotestframework
-from setuptools import setup, find_packages, Extension
-
-# this line allows the version to be specified in the release script
-try:
-	version = version
-except:
-	version = "0.0"
-
+from setuptools import setup
+        
+# these lines allow the version to be specified in Makefile.private
+import os
+version = os.environ.get("MODULEVER", "0.0")
+        
 setup(
-	# install_requires allows you to import a specific version of a module in your scripts 
-#	install_requires = ['dls.ca2==1.6'],
-	# setup_requires lets us use the site specific settings for installing scripts
-	setup_requires = ["dls.environment==1.0"],
-	# name of the module
-	name = "dls.autotestframework",
-	# version: over-ridden by the release script
-	version = version,
-	packages = ["dls","dls.autotestframework"],
-	package_dir = {	'dls': 'dls',
-					'dls.autotestframework': 'src'},
-	# define console_scripts to be 
-	entry_points = {'console_scripts': ['dls-run-tests = dls.autotestframework.autotestframework:main']},
-	include_package_data = True,
-	zip_safe = False
-	)
+#    install_requires = ['cothread'], # require statements go here
+    name = 'dls_autotestframework',
+    version = version,
+    description = 'Module',
+    author = 'fgz73762',
+    author_email = 'fgz73762@rl.ac.uk',    
+    packages = ['dls_autotestframework'],
+    entry_points = {'console_scripts': ['dls-run-tests = dls_autotestframework.autotestframework:main']},
+#    include_package_data = True, # use this to include non python files
+    zip_safe = False
+    )        

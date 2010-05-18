@@ -1,10 +1,27 @@
-include $(shell dls-setuptools-makefile.py)
+# Specify defaults for testing
+PREFIX = /dls_sw/prod/tools/RHEL5
+PYTHON = $(PREFIX)/bin/python2.6
+INSTALL_DIR = /dls_sw/work/common/python/test/packages
+SCRIPT_DIR = /dls_sw/work/common/python/test/scripts
+MODULEVER = 0.0
 
-# uncomment to force a different version of python
-#PYTHON=python2.4
+# Override with any release info
+-include Makefile.private
 
-# uncomment to use different script and install locations for make test
-#TEST_INSTALL_DIR=/dls_sw/work/common/python/test/packages
-#TEST_SCRIPT_DIR=/dls_sw/work/common/python/test/scripts
+# This is run when we type make
+dist: setup.py $(wildcard dls_autotestframework/*.py)
+	MODULEVER=$(MODULEVER) $(PYTHON) setup.py bdist_egg
+	touch dist
 
-# you must add the TEST_INSTALL_DIR to your PYTHONPATH before using any packages installed with make test
+# Clean the module
+clean:
+	$(PYTHON) setup.py clean
+	-rm -rf build dist *egg-info installed.files
+	-find -name '*.pyc' -exec rm {} \;
+
+# Install the built egg
+install: dist
+	$(PYTHON) setup.py easy_install -m \
+		--record=installed.files \
+		--install-dir=$(INSTALL_DIR) \
+		--script-dir=$(SCRIPT_DIR) dist/*.egg        
