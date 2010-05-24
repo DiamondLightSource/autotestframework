@@ -14,7 +14,8 @@ setup(
     packages = ['dls_autotestframework'],
     entry_points = {'console_scripts': [
         'dls-run-tests = dls_autotestframework.autotestframework:main',
-        'dls-create-coverage-report.py = dls_autotestframework.createcoveragereport:main'
+        'dls-create-coverage-report.py = dls_autotestframework.createcoveragereport:main',
+        'dls-build-epics-base.py = dls_autotestframework.buildepicsbase:main'
         ]},
 #    include_package_data = True, # use this to include non python files
     zip_safe = False
