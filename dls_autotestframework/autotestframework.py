@@ -432,9 +432,9 @@ class TestCase(unittest.TestCase):
         '''Return simulation device.'''
         return self.suite.simulation(devName)
 
-    def ioc(self, iocName):
-        '''Return an IOC object.'''
-        return self.suite.ioc(iocName)
+    def entity(self, name):
+        '''Return an entity object.'''
+        return self.suite.entity(name)
 
     def simulationDevicePresent(self, devName):
         '''Returns True if the device simulation is present.'''
@@ -658,9 +658,9 @@ class TestSuite(unittest.TestSuite):
         '''Return simulation device.'''
         return self.target.simulation(devName)
 
-    def ioc(self, iocName):
-        '''Return an IOC object.'''
-        return self.target.ioc(iocName)
+    def entity(self, name):
+        '''Return an entity object.'''
+        return self.target.getEntity(name)
 
     def simulationDevicePresent(self, devName):
         '''Returns True if the simulation device is present in the current target'''
@@ -1017,14 +1017,6 @@ class Target(object):
             result = e.rpcObject()
         return result
 
-    def ioc(self, iocName):
-        '''Return the IOC.'''
-        result = None
-        e = self.getEntity(iocName)
-        if e is not None:
-            result = e.rpcObject()
-        return result
-
     def simulationDevicePresent(self, devName):
         '''Returns True if the simulation device is present in the current target'''
         return self.getEntity(devName) is not None
@@ -1136,7 +1128,7 @@ class IocEntity(Entity):
         if phase == phaseNormal and runIoc and self.automaticRun:
             self.start()
 
-    def start(self):
+    def start(self, noStartupScriptWait=False):
         if self.vxWorks:
             # vxWorks IOC
             self.prepareRedirector()
@@ -1155,9 +1147,10 @@ class IocEntity(Entity):
             print 'Waiting for auto-boot message'
             ok = self.telnetConnection.waitFor('Press any key to stop auto-boot', 60)
             print "    ok=%s" % ok
-            print 'Waiting for script loaded message'
-            ok = self.telnetConnection.waitFor('Done executing startup script', 120)
-            print "    ok=%s" % ok
+            if not noStartupScriptWait:
+                print 'Waiting for script loaded message'
+                ok = self.telnetConnection.waitFor('Done executing startup script', 120)
+                print "    ok=%s" % ok
         else:  
             # Linux soft IOC
             bootCmd = self.bootCmd
@@ -1180,7 +1173,7 @@ class IocEntity(Entity):
     def prepareRedirector(self):
         '''Programs the redirector to load the IOC executable.'''
         # The path of the executable
-        iocPath = '%s/%s/%s' % (os.getcwd(), self.directory, self.bootCmd)
+        iocPath = os.path.normpath(os.path.join(os.getcwd(), self.directory, self.bootCmd))
         print '@A:%s' % repr(iocPath)
         # Is the redirector already correct?
         str = subprocess.Popen('configure-ioc show %s' % self.name, 
@@ -1206,6 +1199,10 @@ class IocEntity(Entity):
                 pathNow = str.strip().split()[1]
                 print '@4:%s' % repr(pathNow)
         return pathNow == iocPath
+
+    def sendSignal(self, signal):
+        if self.process is not None:
+            self.process.send_signal(signal)
 
 ################################################
 # Epics Database Entity definition class
