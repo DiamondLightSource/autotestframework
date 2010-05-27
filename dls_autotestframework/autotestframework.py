@@ -15,6 +15,7 @@ require('cothread')
 import cothread
 from cothread import *
 from cothread.catools import *
+import cothread.coselect
 import re, os, socket, sys
 import inspect
 import shlex
@@ -34,6 +35,7 @@ import pyclbr
 import traceback
 import telnetlib
 import getopt
+import fcntl
 
 helpText = """
 Execute an automatic test suite.  Options are:
@@ -546,7 +548,14 @@ class TestCase(unittest.TestCase):
         # If the move did not complete, fail
         if not done:
             self.fail("%s: Move to %s did not complete" % (pv, val))
-            
+    
+    def verifyIocStdout(self, ioc, text, wait=0, discard=False):
+        if not ioc.verifyStdout(text, wait, discard):
+            self.fail('Could not find %s in %s.stdout' % (repr(text), ioc.name))
+
+    def verifyIocStderr(self, ioc, text, wait=0, discard=False):
+        if not ioc.verifyStderr(text, wait, discard):
+            self.fail('Could not find %s in %s.stderr' % (repr(text), ioc.name))
 
 ################################################
 # Test suite super class
@@ -873,6 +882,124 @@ class TelnetConnection(object):
         return self.receivedText
         
 ################################################
+# Class that launches a command line in parallel and then provides
+# communication with stdin and stderr.
+class AsynchronousProcess(object):
+    '''Launch a process and provide communications.'''
+    def __init__(self, runCmd, directory, logFile=None):
+        self.receivedTextStdout = ''
+        self.receivedTextStderr = ''
+        self.processRunning = True
+        self.logFile = None
+        if logFile is not None:
+            print "Opening process log file %s" % logFile
+            self.logFile = open(logFile, 'a+')
+        self.process = subprocess.Popen(runCmd, cwd=directory, bufsize=1, stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
+        #self.rxThreadIdStdout = thread.start_new_thread(self.receiveThreadStdout, ())
+        self.rxThreadIdStdout = Spawn(self.receiveThreadStdout)
+        #self.rxThreadIdStderr = thread.start_new_thread(self.receiveThreadStderr, ())
+        self.rxThreadIdStderr = Spawn(self.receiveThreadStderr)
+
+    def receiveThreadStdout(self):
+        try:
+            flags = fcntl.fcntl(self.process.stdout, fcntl.F_GETFL)
+            fcntl.fcntl(self.process.stdout, fcntl.F_SETFL, flags| os.O_NONBLOCK)
+            while self.processRunning:
+                #if select.select([self.process.stdout], [], [])[0]:
+                if cothread.coselect.select([self.process.stdout], [], [])[0]:
+                    text = self.process.stdout.read()
+                    print text
+                    sys.stdout.flush()
+                    self.receivedTextStdout += text
+                    if self.logFile is not None:
+                        self.logFile.write(text)
+                        self.logFile.flush()
+                        os.fsync(self.logFile.fileno())
+        except Exception, e:
+            # On any exception, just exit the thread
+            pass
+
+    def receiveThreadStderr(self):
+        try:
+            going = True
+            flags = fcntl.fcntl(self.process.stderr, fcntl.F_GETFL)
+            fcntl.fcntl(self.process.stderr, fcntl.F_SETFL, flags| os.O_NONBLOCK)
+            while self.processRunning:
+                #if select.select([self.process.stderr], [], [])[0]:
+                if cothread.coselect.select([self.process.stderr], [], [])[0]:
+                    text = self.process.stderr.read()
+                    print text
+                    sys.stdout.flush()
+                    self.receivedTextStderr += text
+                    if self.logFile is not None:
+                        self.logFile.write(text)
+                        self.logFile.flush()
+                        os.fsync(self.logFile.fileno())
+        except Exception, e:
+            # On any exception, just exit the thread
+            pass
+
+    def kill(self):
+        self.processRunning = False
+        killProcessAndChildren(self.process.pid)
+
+    def waitForStdout(self, text, timeout, discard):
+        '''Waits for the specified text to be received.  Any text
+           in the receivedText variable is checked first.  Returns
+           True if the text is found, False if not.'''
+        timeRemaining = timeout
+        found = re.search(text, self.receivedTextStdout)
+        while not found and timeRemaining > 0.0:
+            Sleep(1.0)
+            #time.sleep(1.0)
+            timeRemaining -= 1.0
+            found = re.search(text, self.receivedTextStdout)
+        if discard and found:
+            self.receivedTextStdout = self.receivedTextStdout[found.end():]
+        #print "Found=%s, Looking for %s in %s" % (found, repr(text), repr(self.receivedTextStdout))
+        return found
+
+    def waitForStderr(self, text, timeout, discard):
+        '''Waits for the specified text to be received.  Any text
+           in the receivedText variable is checked first.  Returns
+           True if the text is found, False if not.'''
+        timeRemaining = timeout
+        found = re.search(text, self.receivedTextStderr)
+        while not found and timeRemaining > 0.0:
+            Sleep(1.0)
+            #time.sleep(1.0)
+            timeRemaining -= 1.0
+            found = re.search(text, self.receivedTextStderr)
+        if discard and found:
+            self.receivedTextStderr = self.receivedTextStderr[found.end():]
+        #print "Found=%s, Looking for %s in %s" % (found, repr(text), repr(self.receivedTextStderr))
+        return found
+
+    def write(self, text):
+        #if select.select([], [self.process.stdin], [], 0)[1]:
+        if cothread.coselect.select([], [self.process.stdin], [], 0)[1]:
+            self.process.stdin.write(text)
+            self.process.stdin.flush()
+            print text
+            sys.stdout.flush()
+
+    def clearReceivedTextStdout(self):
+        self.receivedTextStdout = ''
+
+    def getReceivedTextStdout(self):
+        return self.receivedTextStdout
+        
+    def clearReceivedTextStderr(self):
+        self.receivedTextStderr = ''
+
+    def getReceivedTextStderr(self):
+        return self.receivedTextStderr
+
+    def sendSignal(self, signal):
+        self.process.send_signal(signal)
+        
+################################################
 # Class that handles an IP power 9258 power switch
 class PowerSwitch(object):
     '''Manage a power switch channel.'''
@@ -1127,6 +1254,8 @@ class IocEntity(Entity):
         self.underHudson = underHudson
         if phase == phaseNormal and runIoc and self.automaticRun:
             self.start()
+            if not self.vxWorks:
+                Sleep(10)
 
     def start(self, noStartupScriptWait=False):
         if self.vxWorks:
@@ -1151,24 +1280,29 @@ class IocEntity(Entity):
                 print 'Waiting for script loaded message'
                 ok = self.telnetConnection.waitFor('Done executing startup script', 120)
                 print "    ok=%s" % ok
-        else:  
+        else:
+            self.process = AsynchronousProcess(self.bootCmd, self.directory)
             # Linux soft IOC
-            bootCmd = self.bootCmd
-            if self.runInScreenUnderHudson and self.underHudson:
-                bootCmd = "screen -D -m -L " + bootCmd
-            self.process = subprocess.Popen(bootCmd,
-                cwd=self.directory, shell=True)
-            Sleep(10)
+            #bootCmd = self.bootCmd
+            #if self.runInScreenUnderHudson and self.underHudson:
+            #    bootCmd = "screen -D -m -L " + bootCmd
+            #self.process = subprocess.Popen(bootCmd,
+            #    cwd=self.directory, shell=True)
 
     def destroy(self, phase):
         if self.process is not None and phase == phaseLate:
             self.stop()
 
     def stop(self):
-        killProcessAndChildren(self.process.pid)
-        self.process = None
-        p = subprocess.Popen("stty sane", shell=True)
-        p.wait()
+        if self.vxWorks:
+            pass
+        else:
+            #killProcessAndChildren(self.process.pid)
+            #self.process = None
+            #p = subprocess.Popen("stty sane", shell=True)
+            #p.wait()
+            self.process.kill()
+            self.process = None
 
     def prepareRedirector(self):
         '''Programs the redirector to load the IOC executable.'''
@@ -1202,7 +1336,29 @@ class IocEntity(Entity):
 
     def sendSignal(self, signal):
         if self.process is not None:
-            self.process.send_signal(signal)
+            self.process.sendSignal(signal)
+
+    def verifyStdout(self, text, wait=0, discard=False):
+        return self.process.waitForStdout(text, wait, discard)
+
+    def verifyStderr(self, text, wait=0, discard=False):
+        return self.process.waitForStderr(text, wait, discard)
+
+    def writeStdin(self, text):
+        self.process.write(text)
+
+    def readStdout(self):
+        return self.process.getReceivedTextStdout()
+
+    def readStderr(self):
+        return self.process.getReceivedTextStderr()
+
+    def clearStdout(self):
+        self.process.clearReceivedTextStdout()
+
+    def clearStderr(self):
+        self.process.clearReceivedTextStderr()
+
 
 ################################################
 # Epics Database Entity definition class
