@@ -549,11 +549,11 @@ class TestCase(unittest.TestCase):
         if not done:
             self.fail("%s: Move to %s did not complete" % (pv, val))
     
-    def verifyIocStdout(self, ioc, text, wait=0, discard=False):
+    def verifyIocStdout(self, ioc, text, wait=0, discard=True):
         if not ioc.verifyStdout(text, wait, discard):
             self.fail('Could not find %s in %s.stdout' % (repr(text), ioc.name))
 
-    def verifyIocStderr(self, ioc, text, wait=0, discard=False):
+    def verifyIocStderr(self, ioc, text, wait=0, discard=True):
         if not ioc.verifyStderr(text, wait, discard):
             self.fail('Could not find %s in %s.stderr' % (repr(text), ioc.name))
 
@@ -886,11 +886,12 @@ class TelnetConnection(object):
 # communication with stdin and stderr.
 class AsynchronousProcess(object):
     '''Launch a process and provide communications.'''
-    def __init__(self, runCmd, directory, logFile=None):
+    def __init__(self, runCmd, directory, logFile=None, name=''):
         self.receivedTextStdout = ''
         self.receivedTextStderr = ''
         self.processRunning = True
         self.logFile = None
+        self.name = name
         if logFile is not None:
             print "Opening process log file %s" % logFile
             self.logFile = open(logFile, 'a+')
@@ -904,12 +905,14 @@ class AsynchronousProcess(object):
     def receiveThreadStdout(self):
         try:
             flags = fcntl.fcntl(self.process.stdout, fcntl.F_GETFL)
-            fcntl.fcntl(self.process.stdout, fcntl.F_SETFL, flags| os.O_NONBLOCK)
+            fcntl.fcntl(self.process.stdout, fcntl.F_SETFL, flags | os.O_NONBLOCK | os.O_SYNC)
             while self.processRunning:
                 #if select.select([self.process.stdout], [], [])[0]:
                 if cothread.coselect.select([self.process.stdout], [], [])[0]:
                     text = self.process.stdout.read()
-                    print text
+                    lines = text.split('\n')
+                    for line in lines:
+                        print '%s:o> %s' % (self.name, repr(line))
                     sys.stdout.flush()
                     self.receivedTextStdout += text
                     if self.logFile is not None:
@@ -924,12 +927,14 @@ class AsynchronousProcess(object):
         try:
             going = True
             flags = fcntl.fcntl(self.process.stderr, fcntl.F_GETFL)
-            fcntl.fcntl(self.process.stderr, fcntl.F_SETFL, flags| os.O_NONBLOCK)
+            fcntl.fcntl(self.process.stderr, fcntl.F_SETFL, flags | os.O_NONBLOCK | os.O_SYNC)
             while self.processRunning:
                 #if select.select([self.process.stderr], [], [])[0]:
                 if cothread.coselect.select([self.process.stderr], [], [])[0]:
                     text = self.process.stderr.read()
-                    print text
+                    lines = text.split('\n')
+                    for line in lines:
+                        print '%s:o> %s' % (self.name, repr(line))
                     sys.stdout.flush()
                     self.receivedTextStderr += text
                     if self.logFile is not None:
@@ -955,9 +960,9 @@ class AsynchronousProcess(object):
             #time.sleep(1.0)
             timeRemaining -= 1.0
             found = re.search(text, self.receivedTextStdout)
+        #print "Found=%s, Looking for %s in %s" % (found, repr(text), repr(self.receivedTextStdout))
         if discard and found:
             self.receivedTextStdout = self.receivedTextStdout[found.end():]
-        #print "Found=%s, Looking for %s in %s" % (found, repr(text), repr(self.receivedTextStdout))
         return found
 
     def waitForStderr(self, text, timeout, discard):
@@ -971,9 +976,9 @@ class AsynchronousProcess(object):
             #time.sleep(1.0)
             timeRemaining -= 1.0
             found = re.search(text, self.receivedTextStderr)
+        #print "Found=%s, Looking for %s in %s" % (found, repr(text), repr(self.receivedTextStderr))
         if discard and found:
             self.receivedTextStderr = self.receivedTextStderr[found.end():]
-        #print "Found=%s, Looking for %s in %s" % (found, repr(text), repr(self.receivedTextStderr))
         return found
 
     def write(self, text):
@@ -997,6 +1002,8 @@ class AsynchronousProcess(object):
         return self.receivedTextStderr
 
     def sendSignal(self, signal):
+        #p = subprocess.Popen("kill -%s %d" % (signal, self.process.pid), shell=True)
+        #p.wait()
         self.process.send_signal(signal)
         
 ################################################
@@ -1281,7 +1288,7 @@ class IocEntity(Entity):
                 ok = self.telnetConnection.waitFor('Done executing startup script', 120)
                 print "    ok=%s" % ok
         else:
-            self.process = AsynchronousProcess(self.bootCmd, self.directory)
+            self.process = AsynchronousProcess(self.bootCmd, self.directory, name=self.name)
             # Linux soft IOC
             #bootCmd = self.bootCmd
             #if self.runInScreenUnderHudson and self.underHudson:
@@ -1338,10 +1345,10 @@ class IocEntity(Entity):
         if self.process is not None:
             self.process.sendSignal(signal)
 
-    def verifyStdout(self, text, wait=0, discard=False):
+    def verifyStdout(self, text, wait=0, discard=True):
         return self.process.waitForStdout(text, wait, discard)
 
-    def verifyStderr(self, text, wait=0, discard=False):
+    def verifyStderr(self, text, wait=0, discard=True):
         return self.process.waitForStderr(text, wait, discard)
 
     def writeStdin(self, text):
