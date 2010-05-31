@@ -686,6 +686,7 @@ class TestSuite(unittest.TestSuite):
                 self.target.prepare(self.doBuild, self.runIoc, self.runGui, 
                     self.diagnosticLevel, self.runSimulation, self.underHudson, self)
                 self.diagnostic("==============================")
+                self.diagnostic("***** %s *****" % getClassName(self))
                 self.results = TestResult(self.countTestCases(), sys.stdout, self)
                 self.run(self.results)
                 self.diagnostic("==============================")
