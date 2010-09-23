@@ -865,11 +865,18 @@ class TelnetConnection(object):
            in the receivedText variable is checked first.  Returns
            True if the text is found, False if not.'''
         timeRemaining = timeout
-        found = self.receivedText.find(text) >= 0
+        items = []
+        if type(text) == type(list()):
+            items = text
+        else:
+            items.append(text)
+        found = False
         while not found and timeRemaining > 0.0:
-            Sleep(0.1)
-            timeRemaining -= 0.1
-            found = self.receivedText.find(text) >= 0
+            for item in items:
+                found = found or self.receivedText.find(item) >= 0
+            if not found:
+                Sleep(0.1)
+                timeRemaining -= 0.1
         #print "Looking for %s in %s" % (repr(text), repr(self.receivedText))
         return found
 
@@ -1225,6 +1232,7 @@ class IocEntity(Entity):
             bootCmd=None,
             runInScreenUnderHudson=True,
             vxWorks=False,
+            rtems=False,
             telnetAddress=None,
             telnetPort=None,
             telnetLogFile=None,
@@ -1240,6 +1248,7 @@ class IocEntity(Entity):
         self.bootCmd = bootCmd
         self.runInScreenUnderHudson = runInScreenUnderHudson
         self.vxWorks = vxWorks
+        self.rtems = rtems
         self.telnetAddress = telnetAddress
         self.telnetPort = telnetPort
         self.telnetLogFile = telnetLogFile
@@ -1262,7 +1271,7 @@ class IocEntity(Entity):
         self.underHudson = underHudson
         if phase == phaseNormal and runIoc and self.automaticRun:
             self.start()
-            if not self.vxWorks:
+            if not self.vxWorks and not self.rtems:
                 Sleep(10)
 
     def start(self, noStartupScriptWait=False):
@@ -1288,6 +1297,35 @@ class IocEntity(Entity):
                 print 'Waiting for script loaded message'
                 ok = self.telnetConnection.waitFor('Done executing startup script', 120)
                 print "    ok=%s" % ok
+        elif self.rtems:
+            # Connect up the telnet
+            self.telnetConnection = TelnetConnection(self.telnetAddress,
+                    self.telnetPort, self.telnetLogFile)
+            # Reset the IOC
+            print 'Resetting IOC'
+            if self.powerSwitch is not None:
+                self.powerSwitch.reset()
+            elif self.crateMonitor is not None:
+                self.crateMonitor.reset()
+            else:
+                Sleep(1)
+                self.telnetConnection.write('\r')
+                Sleep(1)
+                self.telnetConnection.write('reset\r')
+            print 'Waiting for boot message'
+            ok = self.telnetConnection.waitFor('MVME5500>', 60)
+            print "    ok=%s" % ok
+            # Place the boot file in the TFTP directory
+            # TODO
+            # Load the boot file
+            self.telnetConnection.write('tftpGet -c172.23.248.38 -s172.23.240.2 -g172.23.240.254 -m255.255.240.0 -frtems/%s\r' % self.bootCmd)
+            ok = self.telnetConnection.waitFor('MVME5500>', 60)
+            Sleep(1)
+            # Run the tests
+            self.telnetConnection.write('netShut\r')
+            ok = self.telnetConnection.waitFor('MVME5500>', 60)
+            Sleep(1)
+            self.telnetConnection.write('go\r')
         else:
             self.process = AsynchronousProcess(self.bootCmd, self.directory, name=self.name)
             # Linux soft IOC
