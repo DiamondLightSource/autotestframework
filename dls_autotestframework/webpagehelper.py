@@ -120,7 +120,7 @@ class WebPage(object):
                     wFile.close()
                     # Write this page
                     wFile = open(os.path.join(directory, htmlFileName + '.html'), "w+")
-                    self.body().writexml(wFile, indent="  ", addindent="  ", newl="\n")
+                    self.body().writexml(wFile, indent="", addindent="", newl="")
                     self.written = True
                 else:
                     # Write the style sheet
@@ -128,7 +128,7 @@ class WebPage(object):
                         self.styleSheet.write(directory)
                     # Write this page
                     wFile = open(os.path.join(directory, htmlFileName + '.html'), "w+")
-                    self.doc.writexml(wFile, indent="  ", addindent="  ", newl="\n")
+                    self.doc.writexml(wFile, indent="", addindent="", newl="")
                     self.written = True
                 # Write out children sheets
                 for child in self.children:
@@ -188,9 +188,11 @@ class WebPage(object):
                 col.appendChild(self.doc.createTextNode(str(text)))
         return col
             
-    def emphasize(self, parent, text=None):
+    def emphasize(self, parent, text=None, className=None):
         '''Returns an emphasis object, optionally containing the text.'''
         result = self.doc.createElement('em')
+        if className is not None:
+            result.setAttribute('class', className)
         parent.appendChild(result)
         if text is not None:
             result.appendChild(self.doc.createTextNode(str(text)))

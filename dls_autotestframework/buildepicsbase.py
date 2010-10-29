@@ -435,7 +435,10 @@ class Worker(object):
                 if self.indexPage is not None:
                     vxPage = WebPage('Base Tests, vxWorks Target, Results', 'vxworks',
                         self.indexPage.styleSheet)
-                    (tests, passes, fails, crashed) = self.tapToHtml('vxTestLog.txt', vxPage)
+                    vxLogPage = WebPage('Base Tests, vxWorks Target, Console Output', 'vxworks-log',
+                        self.indexPage.styleSheet)
+                    vxPage.hrefPage(vxPage.body(), vxLogPage, 'Console Output')
+                    (tests, passes, fails, crashed) = self.tapToHtml('vxTestLog.txt', vxPage, vxLogPage)
                     result = ''
                     if crashed:
                         result = 'Crash detected. '
@@ -483,7 +486,10 @@ class Worker(object):
                 if self.indexPage is not None:
                     rtemsPage = WebPage('Base Tests, RTEMS Target, Results', 'rtems',
                         self.indexPage.styleSheet)
-                    (tests, passes, fails, crashed) = self.tapToHtml('rtemsTestLog.txt', rtemsPage)
+                    rtemsLogPage = WebPage('Base Tests, RTEMS Target, Console Output', 'rtems-log',
+                        self.indexPage.styleSheet)
+                    rtemsPage.hrefPage(rtemsPage.body(), rtemsLogPage, 'Console Output')
+                    (tests, passes, fails, crashed) = self.tapToHtml('rtemsTestLog.txt', rtemsPage, rtemsLogPage)
                     result = ''
                     if crashed:
                         result = 'Crash detected. '
@@ -529,7 +535,10 @@ class Worker(object):
                 if self.indexPage is not None:
                     hostPage = WebPage('Base Tests, Host, Results', 'host',
                         self.indexPage.styleSheet)
-                    (tests, passes, fails, crashed) = self.tapToHtml('hostTestLog.txt', hostPage)
+                    hostLogPage = WebPage('Base Tests, Host, Console Output', 'host-log',
+                        self.indexPage.styleSheet)
+                    hostPage.hrefPage(hostPage.body(), hostLogPage, 'Console Output')
+                    (tests, passes, fails, crashed) = self.tapToHtml('hostTestLog.txt', hostPage, hostLogPage)
                     result = ''
                     if crashed:
                         result = 'Crash detected. '
@@ -546,10 +555,19 @@ class Worker(object):
             startTime = time.time()
             # Run the tests
             subprocess.call('dls-run-tests -x -i > softTestLog.txt', shell=True)
-            # Process the log files
+            # Process the results
             if self.indexPage is not None:
                 softPage = WebPage('Soft Tests, Host, Results', 'soft',
                     self.indexPage.styleSheet)
+                # Create the console output page
+                softLogPage = WebPage('Soft Tests, Host, Console Output', 'soft-log',
+                    self.indexPage.styleSheet)
+                softPage.hrefPage(softPage.body(), softLogPage, 'Console Output')
+                logFile = open('softTestLog.txt', 'r')
+                logBody = softLogPage.preformatted(softLogPage.body())
+                for line in logFile:
+                    softLogPage.text(logBody, line)
+                # Process the log files
                 softTable = softPage.table(softPage.body(),
                     ['name', 'tests', 'passes', 'fails'], id='releases', cellSpacing='0')
                 files = os.listdir('./tests/etc/test')
@@ -684,7 +702,7 @@ class Worker(object):
                 result[parts[0].strip()] = parts[1].strip()
         return result
 
-    def tapToHtml(self, tapFileName, topPage):
+    def tapToHtml(self, tapFileName, topPage, logPage=None):
         '''Fills the WebPage object (topPage) with information from the TAP file.
            Returns a tuple consisting of (totalTests, totalPasses, totalFails).'''
         tapFile = open(tapFileName, 'r')
@@ -702,7 +720,12 @@ class Worker(object):
             ['name', 'tests', 'passes', 'fails'], id='releases', cellSpacing='0')
         suiteRow = None
         topPageClassName = None
+        if logPage is not None:
+            logBody = logPage.preformatted(logPage.body())
         for line in tapFile:
+            # Fill log page
+            if logPage is not None:
+                logPage.text(logBody, line)
             # Suite name (not TAP but consistently used in the output)
             m = re.match('#?\\*\\*\\*\\*\\*\\s*(\\w*)\\s*\\*\\*\\*\\*\\*', line)
             if m:

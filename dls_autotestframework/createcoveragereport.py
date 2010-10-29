@@ -59,7 +59,7 @@ class CoverageReport(object):
         # Start the top level web page
         self.indexPage = webPage
         self.indexTable = self.indexPage.table(self.indexPage.body(),
-            ['file', 'coverage'])
+            ['file', 'coverage'], id='releases', cellSpacing='0')
         # Do the work
         reports = {}
         self.processFiles(path, reports)
@@ -143,9 +143,12 @@ class CoverageReport(object):
                 filePath = os.path.normpath(os.path.join(path, file))
                 if filePath not in reports:
                     # Plant an entry in the top level web page
+                    className = None
+                    if (self.indexTable.childNodes.length & 1) == 0:
+                        className = 'alt'
                     row = self.indexPage.tableRow(self.indexTable)
-                    self.indexPage.tableColumn(row, filePath)
-                    self.indexPage.tableColumn(row, 'No coverage information')
+                    self.indexPage.tableColumn(row, filePath, className=className)
+                    self.indexPage.tableColumn(row, 'No coverage information', className=className)
     def createReport(self, sourcePath, gcovDirectory):
         # Create the report for a source file
         (directory, file) = os.path.split(sourcePath)
@@ -181,21 +184,27 @@ class CoverageReport(object):
                                 parts[1] + ':' + parts[2])
                         else:
                             page.emphasize(pageBody, parts[0] + ':' +
-                                parts[1] + ':' + parts[2])
+                                parts[1] + ':' + parts[2], className="active")
             # Plant an entry in the top level web page
+            className = None
+            if (self.indexTable.childNodes.length & 1) == 0:
+                className = 'alt'
             row = self.indexPage.tableRow(self.indexTable)
-            self.indexPage.hrefPage(self.indexPage.tableColumn(row),
+            self.indexPage.hrefPage(self.indexPage.tableColumn(row, className=className),
                 page, sourcePath)
             if significantLines > 0:
                 self.indexPage.tableColumn(row,
-                    '%.2f%% covered' % (coveredLines/significantLines*100.0))
+                    '%.2f%% covered' % (coveredLines/significantLines*100.0), className=className)
             else:
-                self.indexPage.tableColumn(row, '100% covered')
+                self.indexPage.tableColumn(row, '100% covered', className=className)
         else:
             # Plant an entry in the top level web page
+            className = None
+            if (self.indexTable.childNodes.length & 1) == 0:
+                className = 'alt'
             row = self.indexPage.tableRow(self.indexTable)
-            self.indexPage.tableColumn(row, sourcePath)
-            self.indexPage.tableColumn(row, 'No coverage information')
+            self.indexPage.tableColumn(row, sourcePath, className=className)
+            self.indexPage.tableColumn(row, 'No coverage information', className=className)
 
 def main():
     CoverageReport().do()
