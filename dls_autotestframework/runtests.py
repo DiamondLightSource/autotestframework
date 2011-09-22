@@ -161,7 +161,7 @@ class RunTests(object):
                             cmd = ""
                             for export in self.exports:
                                 cmd += export + " "
-                            cmd += "python2.6 %s %s" % (path, options)
+                            cmd += "dls-python2.6 %s %s" % (path, options)
                             if self.logOutput:
                                 cmd += " &> %s" % (log)
                             self.testCommands.append((cmd, moduleDir))
