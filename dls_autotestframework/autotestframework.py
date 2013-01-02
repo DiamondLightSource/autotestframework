@@ -851,6 +851,7 @@ class TelnetConnection(object):
         while going:
             text = self.telnet.read_some()
             going = len(text) > 0
+            print text,
             self.receivedText += text
             if self.logFile is not None:
                 self.logFile.write(text)
@@ -1316,13 +1317,13 @@ class IocEntity(Entity):
             ok = self.telnetConnection.waitFor('MVME5500>', 60)
             print "    ok=%s" % ok
             # Place the boot file in the TFTP directory
-            # TODO
+            os.system('scp ./base/bin/RTEMS-mvme5500/rtemsTestHarness* 172.23.240.2:/tftpboot/rtems/.')
             # Load the boot file
             self.telnetConnection.write('tftpGet -c172.23.248.38 -s172.23.240.2 -g172.23.240.254 -m255.255.240.0 -frtems/%s\r' % self.bootCmd)
             ok = self.telnetConnection.waitFor('MVME5500>', 60)
             Sleep(1)
             # Run the tests
-            self.telnetConnection.write('netShut\r')
+            #self.telnetConnection.write('netShut\r')
             ok = self.telnetConnection.waitFor('MVME5500>', 60)
             Sleep(1)
             self.telnetConnection.write('go\r')

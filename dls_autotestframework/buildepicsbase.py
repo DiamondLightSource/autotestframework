@@ -150,8 +150,8 @@ class Worker(object):
         return result
             
     def setEnvironment(self):
-        os.environ['https_proxy'] = 'http://wwwcache2.rl.ac.uk:8080'
-        os.environ['http_proxy'] = 'http://wwwcache2.rl.ac.uk:8080'
+        os.environ['https_proxy'] = 'http://wwwcache4.rl.ac.uk:8080'
+        os.environ['http_proxy'] = 'http://wwwcache4.rl.ac.uk:8080'
         
     def do(self):
         if self.processArguments():
@@ -320,7 +320,8 @@ class Worker(object):
             #self.addHtmlReport('Make files fixed for Diamond tool location.')
         
     def fixConfigSite(self):
-        '''Fixes the CONFIG_SITE file to build required cross compiler targets.'''
+        '''Fixes the CONFIG_SITE file to build required cross compiler targets and
+           the os specific file to include NCURSES.'''
         if self.checkoutBase:
             inFile = open('base/configure/CONFIG_SITE', 'r')
             lines = inFile.readlines()
@@ -329,6 +330,16 @@ class Worker(object):
             for line in lines:
                 if line.startswith('CROSS_COMPILER_TARGET_ARCHS'):
                     outFile.write('CROSS_COMPILER_TARGET_ARCHS = vxWorks-ppc604_long RTEMS-pc386 RTEMS-mvme167 RTEMS-mvme5500\n')
+                else:
+                    outFile.write(line)
+            outFile.close()
+            inFile = open('base/configure/os/CONFIG_SITE.Common.linux-x86', 'r')
+            lines = inFile.readlines()
+            inFile.close()
+            outFile = open('base/configure/os/CONFIG_SITE.Common.linux-x86', 'w')
+            for line in lines:
+                if line.startswith('#COMMANDLINE_LIBRARY = READLINE_NCURSES'):
+                    outFile.write('COMMANDLINE_LIBRARY = READLINE_NCURSES\n')
                 else:
                     outFile.write(line)
             outFile.close()
@@ -355,11 +366,12 @@ class Worker(object):
             startTime = time.time()
             os.system('make -C base clean uninstall')
             os.system('make -C base >temp.log 2>&1')
-            baseBuildPage = WebPage('Base Build Log', 'baseBuildLog',
-                self.indexPage.styleSheet)
-            self.buildLogToWebPage('temp.log', baseBuildPage)
-            self.addHtmlReport('Base built.', subPage=baseBuildPage,
-                time='%.1f' % (time.time() - startTime))
+            if self.indexPage is not None:
+                baseBuildPage = WebPage('Base Build Log', 'baseBuildLog',
+                    self.indexPage.styleSheet)
+                self.buildLogToWebPage('temp.log', baseBuildPage)
+                self.addHtmlReport('Base built.', subPage=baseBuildPage,
+                    time='%.1f' % (time.time() - startTime))
             os.system('rm temp.log || true')
             
     def doBuildTests(self):
@@ -368,11 +380,12 @@ class Worker(object):
             startTime = time.time()
             os.system('make -C tests clean uninstall')
             os.system('make -C tests >temp.log 2>&1')
-            testsBuildPage = WebPage('Soft Tests Build Log', 'testsBuildLog',
-                self.indexPage.styleSheet)
-            self.buildLogToWebPage('temp.log', testsBuildPage) 
-            self.addHtmlReport('Soft tests built.', subPage=testsBuildPage,
-                time='%.1f' % (time.time() - startTime))
+            if self.indexPage is not None:
+                testsBuildPage = WebPage('Soft Tests Build Log', 'testsBuildLog',
+                    self.indexPage.styleSheet)
+                self.buildLogToWebPage('temp.log', testsBuildPage) 
+                self.addHtmlReport('Soft tests built.', subPage=testsBuildPage,
+                    time='%.1f' % (time.time() - startTime))
             os.system('rm temp.log || true')
 
     def buildLogToWebPage(self, logFileName, webPage):
