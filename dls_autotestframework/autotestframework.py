@@ -792,11 +792,8 @@ class TestResult(unittest.TestResult):
             if len(self.failures) > 1:
                 text += "s"
             text += " "
-            first = True
-            for i in self.failures:
-                if not first:
-                    text += ", "
-                text += "%s" % i
+            # generate a comma separated list of failed test numbers
+            text += ','.join(map(str, self.failures))
             text += "\n"
         if self.testsRun > 0:
             # Now the overall summary
