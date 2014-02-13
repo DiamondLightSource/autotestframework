@@ -47,7 +47,7 @@ Execute an automatic test suite.  Options are:
 -g            Runs the GUI
 -t <target>   Tests only on specified <target>
 --hudson      The test suite is running under Hudson
--c <case>     Execute only this case
+-c <case>     Execute this case, may be specified multiple times
 """
 
 def getClassName(object):
@@ -575,7 +575,7 @@ class TestSuite(unittest.TestSuite):
         self.runGui = False
         self.runSimulation = False
         self.onlyTarget = None
-        self.onlyTestCase = None
+        self.selectedCases = []
         self.results = None
         self.serverSocketName = None
         self.resultSocket = None
@@ -608,7 +608,7 @@ class TestSuite(unittest.TestSuite):
             elif o in ('-t', '--target'):
                 self.onlyTarget = a
             elif o in ('-c', '--case'):
-                self.onlyTestCase = a
+                self.selectedCases.append(a)
             elif o in ('-r'):
                 self.serverSocketName = a
             elif o in ('-b', '--build'):
@@ -656,7 +656,7 @@ class TestSuite(unittest.TestSuite):
     def addTest(self, test):
         '''Add a test case to the suite.'''
         className = getClassName(test)
-        if self.onlyTestCase is None or self.onlyTestCase == className:
+        if not self.selectedCases or className in self.selectedCases:
             unittest.TestSuite.addTest(self, test)
 
     def command(self, devName, text):
