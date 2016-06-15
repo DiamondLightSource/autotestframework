@@ -1,4 +1,4 @@
-#!/bin/env python2.6
+#!/bin/env dls-python
 
 # do imports
 import getopt, sys, os, re
@@ -148,11 +148,11 @@ class Worker(object):
             elif o == '--run-soft-tests':
                 self.runSoftTests = True
         return result
-            
+
     def setEnvironment(self):
         os.environ['https_proxy'] = 'http://wwwcache4.rl.ac.uk:8080'
         os.environ['http_proxy'] = 'http://wwwcache4.rl.ac.uk:8080'
-        
+
     def do(self):
         if self.processArguments():
             self.startHtmlReport()
@@ -224,7 +224,7 @@ class Worker(object):
                 self.indexPage.hrefPage(col, subPage, text)
             self.indexPage.tableColumn(row, result, className=className)
             self.indexPage.tableColumn(row, time, className=className)
-            
+
     def cleanUp(self):
         os.system('rm vxTestHarness.boot || true')
         os.system('rm vxTestLog.txt || true')
@@ -236,7 +236,7 @@ class Worker(object):
             os.system('rm -rf base || true')
         if self.checkoutTests:
             os.system('rm -rf tests || true')
-            
+
     def doCheckoutBase(self):
         '''Check out base from launchpad using bazaar.'''
         if self.checkoutBase:
@@ -254,7 +254,7 @@ class Worker(object):
             os.system(cmdLine)
             self.addHtmlReport('Base checked out using %s.' % repr(cmdLine),
                 time='%.1f' % (time.time() - startTime))
-            
+
     def doCheckoutTests(self):
         '''Check out tests from launchpad using bazaar.'''
         if self.checkoutTests:
@@ -272,7 +272,7 @@ class Worker(object):
             os.system(cmdLine)
             self.addHtmlReport('Soft tests checked out using %s.' % repr(cmdLine),
                 time='%.1f' % (time.time() - startTime))
-            
+
     def fixCoverage(self):
         '''Fix the configuration files to build with code coverage turned on.'''
         if self.coverage:
@@ -288,7 +288,7 @@ class Worker(object):
                 outFile.write('ARCH_DEP_LDFLAGS=-coverage\n')
             outFile.close()
             #self.addHtmlReport('Make files fixed to enable coverage.')
-            
+
     def fixToolsLocation(self):
         '''Fixes cross compiler tool location for the Diamond site.'''
         if self.checkoutBase:
@@ -318,7 +318,7 @@ class Worker(object):
             outFile.close()
             # Report
             #self.addHtmlReport('Make files fixed for Diamond tool location.')
-        
+
     def fixConfigSite(self):
         '''Fixes the CONFIG_SITE file to build required cross compiler targets and
            the os specific file to include NCURSES.'''
@@ -344,7 +344,7 @@ class Worker(object):
                     outFile.write(line)
             outFile.close()
             #self.addHtmlReport('Make files fixed to enable vxWorks and RTEMS builds.')
-        
+
     def fixRelease(self):
         '''Fixes the RELEASE file to refer to the local base.'''
         if self.checkoutTests:
@@ -359,7 +359,7 @@ class Worker(object):
                     outFile.write(line)
             outFile.close()
             #self.addHtmlReport('Soft tests configure/RELEASE fixed to reference local base.')
-    
+
     def doBuildBase(self):
         '''Build base.'''
         if self.buildBase:
@@ -373,7 +373,7 @@ class Worker(object):
                 self.addHtmlReport('Base built.', subPage=baseBuildPage,
                     time='%.1f' % (time.time() - startTime))
             os.system('rm temp.log || true')
-            
+
     def doBuildTests(self):
         '''Build tests.'''
         if self.buildTests:
@@ -383,7 +383,7 @@ class Worker(object):
             if self.indexPage is not None:
                 testsBuildPage = WebPage('Soft Tests Build Log', 'testsBuildLog',
                     self.indexPage.styleSheet)
-                self.buildLogToWebPage('temp.log', testsBuildPage) 
+                self.buildLogToWebPage('temp.log', testsBuildPage)
                 self.addHtmlReport('Soft tests built.', subPage=testsBuildPage,
                     time='%.1f' % (time.time() - startTime))
             os.system('rm temp.log || true')
@@ -632,7 +632,7 @@ class Worker(object):
                 self.addHtmlReport('Soft tests on host.', subPage=softPage,
                     time='%.1f' % (time.time() - startTime),
                     result='Tests=%s, Passes=%s, Fails=%s' % (totalCases, totalPasses, totalFails))
-            
+
     def tapToJunit(self, tapFileName, junitFileName, suite):
         '''Converts TAP output into a JUNIT report.'''
         tapFile = open(tapFileName, 'r')
@@ -682,14 +682,14 @@ class Worker(object):
         xmlDoc.writexml(junitFile, indent="", addindent="  ", newl="\n")
         junitFile.close()
         print 'Tests=%s, Passes=%s, Fails=%s' % (numFails+numPasses, numPasses, numFails)
-        
+
     def createCaseXmlElement(self, xmlDoc, xmlTop, suiteName, caseName):
         element = xmlDoc.createElement("testcase")
         xmlTop.appendChild(element)
         element.setAttribute("classname", suiteName)
         element.setAttribute("name", caseName)
         return element
-    
+
     def getTestSpecs(self, dir='.'):
         '''Return a list of test specification files in the current directory.
            Recursively calls itself for sub-directories.'''
@@ -702,7 +702,7 @@ class Worker(object):
             elif file == 'testspec':
                 result.append(p)
         return result
-            
+
     def parseTestSpec(self, fileName):
         '''Parses a test spec file returning a dictionary of key word/value pairs.  The
            file syntax is:
@@ -819,7 +819,7 @@ class Worker(object):
         totalPasses += numPasses
         totalFails += numFails
         return (totalTests, totalPasses, totalFails, crashed)
-        
+
 def main():
     Worker().do()
 

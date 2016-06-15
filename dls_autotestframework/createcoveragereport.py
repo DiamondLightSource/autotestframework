@@ -1,4 +1,4 @@
-#!/bin/env dls-python2.4
+#!/bin/env dls-python
 
 # do imports
 import getopt, sys, os, re
@@ -9,7 +9,7 @@ from webpagehelper import *
 helpText = '''
   Creates a coverage report using the *.gdca files it finds in the directory tree
   starting from the current directory. It is assumed that the source file that
-  corresponds to a *.gdca file is inthe directory above and is either a *.c or 
+  corresponds to a *.gdca file is inthe directory above and is either a *.c or
   a *.cpp file.
 
   Syntax:

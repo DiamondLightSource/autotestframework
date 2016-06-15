@@ -1,4 +1,4 @@
-#!/dls_sw/tools/bin/python2.4
+#!/bin/env dls-python
 
 helpText = '''Run the automatic integration test facility.
 
@@ -37,7 +37,7 @@ class RunTests(object):
     export EDMHELPFILES=/dls_sw/epics/R3.14.8.2/extensions/html/edm
     export EPICS_CA_MAX_ARRAY_BYTES=1000000
     '''
-    
+
     def __init__(self):
         # Get the command line arguments
         self.module = None
@@ -107,7 +107,7 @@ class RunTests(object):
             p.wait()
             cmd = self.getTestCmd()
         lock.release()
-        
+
     def determineTestCommands(self):
         '''Scans the modules and builds a list containing the commands that
         should be run to execute the test suites.'''
@@ -165,7 +165,7 @@ class RunTests(object):
                             if self.logOutput:
                                 cmd += " &> %s" % (log)
                             self.testCommands.append((cmd, moduleDir))
-    
+
     def processArguments(self):
         """Process the command line arguments.
         """
@@ -212,7 +212,7 @@ class RunTests(object):
             print 'Too many arguments.'
             return False
         return True
-        
+
     def resultServer(self):
         """This function contains the results server thread.  It's only
         task is to respond to connects on the server socket, spawning a
@@ -269,7 +269,7 @@ class RunTests(object):
             tempFile.close()
             self.logFileLock.release()
         lock.release()
-        
+
     def useConfigFile(self):
         """Parse the config file and record the configuration."""
         try:

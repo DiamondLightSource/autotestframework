@@ -1,4 +1,4 @@
-#!/dls_sw/tools/bin/python2.4
+#!/bin/env dls-python
 '''
 Automatic testing framework for the continuous integration/test facility.
 
@@ -96,10 +96,10 @@ class EpicsRecord(object):
         self.dmovMonitor = None
         self.rbvMonitor = None
         self.suite = suite
-        
+
     def __str__(self):
         return "[%s, %s, %s]" % (self.identifier, self.record, self.fields)
-        
+
     def addField(self, name, value):
         '''Adds a field to the EPICS record.  Strips double quotes from the value.'''
         self.fields[name] = value.strip('"')
@@ -112,7 +112,7 @@ class EpicsRecord(object):
             # The value monitor
             if len(self.values) < 32:
                 self.values.add(str(value))
-    
+
     def createMonitors(self):
         '''Create monitors appropriate to the record type so
         that we can make an attempt at estimating the coverage.'''
@@ -159,7 +159,7 @@ class EpicsRecord(object):
             text += "unknown record type"
         text += "\n"
         return text
-        
+
     def mbbxCoverageReport(self):
         '''Record types mbbo and mbbi.
         We expect all the values defined by the value fields to
@@ -178,7 +178,7 @@ class EpicsRecord(object):
         if len(text) == 0:
             text += "ok"
         return text
-        
+
     def mbbxDirectCoverageReport(self):
         '''Record types mbbodirect and mbbidirect.
         We expect all the values defined by the number of bits field.'''
@@ -202,7 +202,7 @@ class EpicsRecord(object):
         if len(text) == 0:
             text += "ok"
         return text
-        
+
     def bxCoverageReport(self):
         '''Record types bo and bi.
         We expect the values 0 and 1 to have occurred.'''
@@ -294,7 +294,7 @@ class EpicsRecord(object):
 # Epics database
 class EpicsDatabase(object):
     '''Represents the whole EPICS database'''
-    
+
     def __init__(self, suite):
         self.records = {}
         self.suite = suite
@@ -307,7 +307,7 @@ class EpicsDatabase(object):
 
     def __len__(self):
         return len(self.records)
-    
+
     def createMonitors(self):
         '''Create monitors for all the records in the database.'''
         for key, record in self.records.iteritems():
@@ -324,7 +324,7 @@ class EpicsDatabase(object):
         for key, record in self.records.iteritems():
             text += record.coverageReport()
         return text
-    
+
     def addRecord(self, identifier, record):
         '''Add a record into the database.'''
         item = EpicsRecord(identifier, record, self.suite)
@@ -388,14 +388,14 @@ class EpicsDatabase(object):
                 token = self.getToken()
                 if token == ")":
                     item.addField(name, value)
-        
+
 ################################################
 # Test case super class
 class TestCase(unittest.TestCase):
     '''The automatic test framework test case super class.  All test
     cases should be derived from this class.  It provides the
     API that test cases can use during tests.'''
-    
+
     def __init__(self, suite):
         # Construct the super class
         unittest.TestCase.__init__(self)
@@ -418,14 +418,14 @@ class TestCase(unittest.TestCase):
         if not d.ok:
             self.fail("caget failed: " + str(d))
         return d
-    
+
     def putPv(self, pv, value, wait=True, **kargs):
         '''Sends a value to a PV.  Can throw a fail exceptions
         when the underlying caput fails.'''
         rc = caput(pv, value, wait=wait, throw=False, **kargs)
         if not rc:
             self.fail("caput failed: " + str(rc))
-    
+
     def command(self, devName, text):
         '''Sends a command to a simulation device.'''
         self.suite.command(devName, text)
@@ -460,7 +460,7 @@ class TestCase(unittest.TestCase):
         if d != value:
             self.fail("%s[%s] != %s" % (pv, d, value))
         return d
-    
+
     def verifyPvFloat(self, pv, value, delta, datatype=float, **kargs):
         '''Reads the specified PV and checks it has the specified value
         within the given error.  Usually used for checking floating point
@@ -470,7 +470,7 @@ class TestCase(unittest.TestCase):
         if d < (value - delta) or d > (value + delta):
             self.fail("%s[%s] != %s +/-%s" % (pv, d, value, delta))
         return d
-    
+
     def verifyPvInRange(self, pv, lower, upper, **kargs):
         '''Reads the specified PV and checks itis within the given range.
         Throws a fail exception if the caget or the check fails.'''
@@ -478,7 +478,7 @@ class TestCase(unittest.TestCase):
         if d < lower or d > upper:
             self.fail("%s[%s] not in %s..%s" % (pv, d, lower, upper))
         return d
-    
+
     def recvResponse(self, devName, rsp, numArgs=-1):
         '''Try to receive a response from the simulation.'''
         return self.suite.recvResponse(devName, rsp, numArgs)
@@ -548,7 +548,7 @@ class TestCase(unittest.TestCase):
         # If the move did not complete, fail
         if not done:
             self.fail("%s: Move to %s did not complete" % (pv, val))
-    
+
     def verifyIocStdout(self, ioc, text, wait=0, discard=True):
         if not ioc.verifyStdout(text, wait, discard):
             self.fail('Could not find %s in %s.stdout' % (repr(text), ioc.name))
@@ -563,7 +563,7 @@ class TestSuite(unittest.TestSuite):
     '''The automatic test framework test suite super class.  Each test suite should
     provide a class derived from this one that defines the cases to
     run and the targets to use.'''
-    
+
     def __init__(self, diagnosticLevel=9):
         # Construct the super class
         unittest.TestSuite.__init__(self)
@@ -627,7 +627,7 @@ class TestSuite(unittest.TestSuite):
             print 'Too many arguments.'
             return False
         return True
-        
+
     def addTarget(self, target):
         '''Add a target to the test suite.'''
         self.targets.append(target)
@@ -662,7 +662,7 @@ class TestSuite(unittest.TestSuite):
     def command(self, devName, text):
         '''Send a command to a simulation device.'''
         self.target.command(devName, text)
-        
+
     def simulation(self, devName):
         '''Return simulation device.'''
         return self.target.simulation(devName)
@@ -683,7 +683,7 @@ class TestSuite(unittest.TestSuite):
         '''Runs this suite's tests.'''
         for self.target in self.targets:
             if self.onlyTarget is None or self.onlyTarget == self.target.name:
-                self.target.prepare(self.doBuild, self.runIoc, self.runGui, 
+                self.target.prepare(self.doBuild, self.runIoc, self.runGui,
                     self.diagnosticLevel, self.runSimulation, self.underHudson, self)
                 self.diagnostic("==============================")
                 self.diagnostic("***** %s *****" % getClassName(self))
@@ -715,7 +715,7 @@ class TestSuite(unittest.TestSuite):
 class TestResult(unittest.TestResult):
     '''The automatic test framework test result class.  It outputs text that
     conforms to the TAP protocol specification to a given stream.'''
-    
+
     def __init__(self, numCases, stream, suite):
         unittest.TestResult.__init__(self)
         self.stream = stream
@@ -886,7 +886,7 @@ class TelnetConnection(object):
 
     def getReceivedText(self):
         return self.receivedText
-        
+
 ################################################
 # Class that launches a command line in parallel and then provides
 # communication with stdin and stderr.
@@ -1000,7 +1000,7 @@ class AsynchronousProcess(object):
 
     def getReceivedTextStdout(self):
         return self.receivedTextStdout
-        
+
     def clearReceivedTextStderr(self):
         self.receivedTextStderr = ''
 
@@ -1011,7 +1011,7 @@ class AsynchronousProcess(object):
         #p = subprocess.Popen("kill -%s %d" % (signal, self.process.pid), shell=True)
         #p.wait()
         self.process.send_signal(signal)
-        
+
 ################################################
 # Class that handles an IP power 9258 power switch
 class PowerSwitch(object):
@@ -1058,8 +1058,8 @@ class CrateMonitor(object):
 class Target(object):
     '''Instances of this class define a target that the test suite is to
     be run against.'''
-    
-    def __init__(self, name, suite, 
+
+    def __init__(self, name, suite,
             # New API
             entities=[],
             # Original API
@@ -1069,7 +1069,7 @@ class Target(object):
             iocBootCmd=None, epicsDbFiles="", simDevices=[],
             parameters={}, guiCmds=[], simulationCmds=[], environment=[],
             runIocInScreenUnderHudson=False, vxWorksIoc=False,
-            iocHardwareName='', 
+            iocHardwareName='',
             iocTelnetAddress=None, iocTelnetPort=None, iocTelnetLogFile=None,
             iocPowerControlAddress=None, iocPowerControlChan=None,
             iocCrateMonitorAddress=None, iocCrateMonitorPort=None):
@@ -1182,7 +1182,7 @@ class Target(object):
 class SimDevice(object):
     '''Instances of this class define the simulation devices available
     with a target.'''
-    
+
     def __init__(self, name, simulationPort, pythonShell=True, rpc = False):
         # Initialise
         self.sim = None
@@ -1354,7 +1354,7 @@ class IocEntity(Entity):
         iocPath = os.path.normpath(os.path.join(os.getcwd(), self.directory, self.bootCmd))
         print '@A:%s' % repr(iocPath)
         # Is the redirector already correct?
-        str = subprocess.Popen('configure-ioc show %s' % self.name, 
+        str = subprocess.Popen('configure-ioc show %s' % self.name,
             shell=True, stdout=subprocess.PIPE).communicate()[0]
         pathNow = str.strip().split()[1]
         print '@1:%s' % repr(pathNow)
@@ -1364,7 +1364,7 @@ class IocEntity(Entity):
                 shell=True, stdout=subprocess.PIPE).communicate()[0]
             print '@2:%s' % repr(str)
             # Wait for the redirector to report the correct path
-            str = subprocess.Popen('configure-ioc show %s' % self.name, 
+            str = subprocess.Popen('configure-ioc show %s' % self.name,
                 shell=True, stdout=subprocess.PIPE).communicate()[0]
             pathNow = str.strip().split()[1]
             print '@3:%s' % repr(pathNow)
@@ -1372,7 +1372,7 @@ class IocEntity(Entity):
             while pathNow != iocPath and timeout > 0:
                 Sleep(2)
                 timeout -= 2
-                str = subprocess.Popen('configure-ioc show %s' % self.name, 
+                str = subprocess.Popen('configure-ioc show %s' % self.name,
                     shell=True, stdout=subprocess.PIPE).communicate()[0]
                 pathNow = str.strip().split()[1]
                 print '@4:%s' % repr(pathNow)
@@ -1685,9 +1685,9 @@ class ParameterEntity(Entity):
 def main():
     '''Main entry point for the DLS command.'''
     tests = RunTests()
-    
 
 
-            
-    
-    
+
+
+
+
